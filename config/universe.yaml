@@ -1,0 +1,108 @@
+# Instrument & series universe for MacroAdvisor MVP (Equities + Rates).
+#
+# Tiers:
+#   core            -> always pulled, included in intraday refresh (stress + key signals)
+#   backtest_equity -> ETFs/indices only; SURVIVORSHIP-BIAS-FREE; used for OOS backtest & training
+#   backtest_rates  -> rates ETFs + FRED series for the rates sleeve
+#   live_signal     -> single names; LIVE SIGNALS ONLY, never fed into historical OOS backtests
+
+meta:
+  base_currency: USD
+  history_start: "2000-01-01"   # target; per-series inception applied if later
+  history_floor: "2007-01-01"   # hard fallback if pre-2008 quality fails QA
+
+# ---------------------------------------------------------------------------
+# Cross-asset stress / risk-on-off core (Yahoo tickers unless noted)
+# ---------------------------------------------------------------------------
+core:
+  equity_index:
+    - {symbol: "^GSPC",  name: "S&P 500"}
+    - {symbol: "^IXIC",  name: "Nasdaq Composite"}
+    - {symbol: "^NDX",   name: "Nasdaq 100"}
+    - {symbol: "^RUT",   name: "Russell 2000"}
+  volatility:
+    - {symbol: "^VIX",   name: "CBOE VIX"}
+    - {symbol: "^VXN",   name: "CBOE Nasdaq Vol"}
+    - {symbol: "^MOVE",  name: "ICE BofA MOVE", note: "rates vol; Yahoo coverage spotty -> QA flag"}
+  credit_proxy:
+    - {symbol: "HYG",    name: "iShares HY Corp"}
+    - {symbol: "LQD",    name: "iShares IG Corp"}
+  fx:
+    - {symbol: "DX-Y.NYB", name: "US Dollar Index"}
+    - {symbol: "UUP",      name: "Invesco DXY Bullish ETF"}
+
+# ---------------------------------------------------------------------------
+# Backtest / training universe (NO survivorship bias)
+# ---------------------------------------------------------------------------
+backtest_equity:
+  broad:
+    - {symbol: "SPY", name: "S&P 500 ETF"}
+    - {symbol: "QQQ", name: "Nasdaq 100 ETF"}
+    - {symbol: "IWM", name: "Russell 2000 ETF"}
+    - {symbol: "DIA", name: "Dow 30 ETF"}
+    - {symbol: "MDY", name: "S&P MidCap 400 ETF"}
+  sectors:        # SPDR sector ETFs
+    - {symbol: "XLK",  name: "Technology"}
+    - {symbol: "XLF",  name: "Financials"}
+    - {symbol: "XLE",  name: "Energy"}
+    - {symbol: "XLV",  name: "Health Care"}
+    - {symbol: "XLY",  name: "Consumer Discretionary"}
+    - {symbol: "XLP",  name: "Consumer Staples"}
+    - {symbol: "XLI",  name: "Industrials"}
+    - {symbol: "XLB",  name: "Materials"}
+    - {symbol: "XLU",  name: "Utilities"}
+    - {symbol: "XLRE", name: "Real Estate", note: "inception 2015"}
+    - {symbol: "XLC",  name: "Communication Services", note: "inception 2018"}
+
+backtest_rates:
+  etfs:           # tradable rates expression (Yahoo)
+    - {symbol: "BIL",  name: "1-3M T-Bill ETF"}
+    - {symbol: "SHY",  name: "1-3Y Treasury ETF"}
+    - {symbol: "IEF",  name: "7-10Y Treasury ETF"}
+    - {symbol: "TLT",  name: "20+Y Treasury ETF"}
+    - {symbol: "GOVT", name: "US Treasury ETF"}
+    - {symbol: "TIP",  name: "TIPS ETF"}
+  # PRIMARY yield-curve source: US Treasury daily par yields (home.treasury.gov).
+  # The full curve is fetched via ingest/treasury.py; tenors below are the canonical
+  # ids it produces. No per-series config needed — listed for documentation.
+  treasury_curve:
+    - {tenor: "UST3M",  name: "3M par yield"}
+    - {tenor: "UST2Y",  name: "2Y par yield"}
+    - {tenor: "UST5Y",  name: "5Y par yield"}
+    - {tenor: "UST10Y", name: "10Y par yield"}
+    - {tenor: "UST30Y", name: "30Y par yield"}
+  # Cross-check mirror for the curve: CBOE yield indices (independent, reachable).
+  # NOTE: ^IRX (13-week bill) is deliberately excluded — it is a *discount-basis*
+  # rate, structurally ~30-40bp below the coupon-equivalent 3M par yield, so it is
+  # not a valid like-for-like mirror. The short end relies on Treasury.gov directly.
+  yield_mirror:
+    - {symbol: "^FVX", maps_to: "UST5Y",  name: "5Y Treasury yield index"}
+    - {symbol: "^TNX", maps_to: "UST10Y", name: "10Y Treasury yield index"}
+    - {symbol: "^TYX", maps_to: "UST30Y", name: "30Y Treasury yield index"}
+  # OPTIONAL extras only on FRED (credit OAS, real yields, breakevens). Best-effort:
+  # skipped automatically when FRED is unreachable. Credit is otherwise proxied by
+  # HYG/LQD in the `core` tier.
+  fred_optional:
+    - {series: "DFII10", name: "10Y real yield (TIPS)"}
+    - {series: "T10YIE", name: "10Y breakeven inflation"}
+    - {series: "BAMLH0A0HYM2", name: "ICE BofA US HY OAS"}
+    - {series: "BAMLC0A0CM",   name: "ICE BofA US IG OAS"}
+
+# ---------------------------------------------------------------------------
+# Live-signal universe (single names) — LIVE ONLY, never in historical OOS.
+# Constituents fetched dynamically (see ingest/constituents.py); seeds below
+# are a fallback if the dynamic fetch fails.
+# ---------------------------------------------------------------------------
+live_signal:
+  index_membership:
+    - sp500     # fetched dynamically
+    - nasdaq100 # fetched dynamically
+  fallback_seed:
+    - AAPL
+    - MSFT
+    - NVDA
+    - AMZN
+    - GOOGL
+    - META
+    - JPM
+    - XOM

@@ -1,0 +1,74 @@
+# Global settings: risk budget, horizons, refresh, data-quality tolerances.
+# Override locally via config/settings.local.yaml (gitignored) or in-app.
+
+# ---------------------------------------------------------------------------
+# Default risk profile — seeded for an upper-middle-income retail investor.
+# Fully overridable in the dashboard.
+# ---------------------------------------------------------------------------
+risk_budget:
+  notional_usd: 250000
+  max_drawdown: 0.15          # 15%
+  max_leverage: 1.0           # gross exposure / notional
+  per_position_cap: 0.15      # 15% of notional
+  per_asset_class_cap: 0.60   # 60% of notional
+  ranking_objective: sortino  # sortino | sharpe
+  ranking_secondary: sharpe
+  benchmark_rfr_series: DGS3MO # FRED 3M T-bill as the hurdle
+
+# ---------------------------------------------------------------------------
+# Forecast horizons (trading days). Labels & backtest windows derive from these.
+# ---------------------------------------------------------------------------
+horizons:
+  short:
+    label: "1-5d"
+    min_days: 1
+    max_days: 5
+  med_long:
+    label: "1-3m"
+    min_days: 21
+    max_days: 63
+
+# ---------------------------------------------------------------------------
+# Refresh cadence
+# ---------------------------------------------------------------------------
+refresh:
+  post_close:
+    enabled: true
+    time_local: "16:30"       # after US close; full universe + signals + backtest
+    scope: full
+  intraday:
+    enabled: true
+    interval_minutes: 60      # US session only; prices + stress + fast technicals
+    scope: light
+    session_start_local: "09:30"
+    session_end_local: "16:00"
+
+# ---------------------------------------------------------------------------
+# Data-quality / cross-check tolerances
+# ---------------------------------------------------------------------------
+crosscheck:
+  price_rel_tol: 0.005        # 0.5% max divergence between mirror price sources
+  yield_abs_tol_bps: 12       # gross-sanity tol for Treasury-vs-CBOE-index yields;
+                              # catches scaling/tenor errors, tolerates timing/sampling
+  staleness_days: 4           # series with no update in N days -> stale flag
+  min_history_days: 250       # below this a series is flagged thin
+
+# ---------------------------------------------------------------------------
+# Storage
+# ---------------------------------------------------------------------------
+storage:
+  root: "data"
+  parquet_dir: "data/prices"
+  series_dir: "data/series"
+  db_path: "data/macro_advisor.sqlite"
+
+# ---------------------------------------------------------------------------
+# Backtest assumptions
+# ---------------------------------------------------------------------------
+backtest:
+  cost_bps_per_trade: 2.0     # round-turn modeled per leg
+  slippage_bps: 1.0
+  walk_forward:
+    train_min_days: 1260      # ~5y initial train
+    test_days: 63             # ~1 quarter OOS step
+    embargo_days: 5           # purge/embargo to prevent leakage

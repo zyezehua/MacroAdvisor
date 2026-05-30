@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Local data cache (regenerated from sources; not version-controlled)
+data/
+*.parquet
+*.sqlite
+*.db
+
+# Secrets / local config
+.env
+config/secrets.yaml
+config/settings.local.yaml
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Logs
+*.log
+logs/
