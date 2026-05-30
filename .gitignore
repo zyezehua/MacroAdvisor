@@ -22,6 +22,9 @@ data/
 config/secrets.yaml
 config/settings.local.yaml
 
+# Project brief / personal notes (kept local, not version-controlled)
+initial_prompts_macro_advisor.md
+
 # OS / editor
 .DS_Store
 .idea/
