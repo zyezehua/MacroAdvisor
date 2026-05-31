@@ -45,11 +45,12 @@ signals:
 stress:
   weights:
     volatility: 0.25          # VIX/VXN/MOVE — fastest, most direct risk gauge
-    credit: 0.20              # HY/IG spread proxy — funding/solvency stress leads equities
-    rates: 0.20               # curve slope/level — policy & recession signal
-    momentum: 0.15            # price trend/momentum — confirms regime
-    breadth: 0.10             # participation — fragility under thin leadership
-    cross_asset: 0.10         # USD strength + stock-bond correlation
+    credit: 0.18              # HY/IG spread proxy — funding/solvency stress leads equities
+    rates: 0.18               # curve slope/level — policy & recession signal
+    momentum: 0.14            # price trend/momentum — confirms regime
+    breadth: 0.09             # participation — fragility under thin leadership
+    cross_asset: 0.08         # USD strength + stock-bond correlation
+    sentiment: 0.08           # survey conditions + news tone — slower, confirmatory (single-source news)
   # Bands are upper edges; >stressed => "crisis". Signals are z-scored against their own
   # trailing window, so the latent mean-reverts around 0 and a *typical* market maps to a
   # level near 50 — hence "normal" straddles 50 rather than sitting at the low end.
@@ -87,6 +88,22 @@ recommend:
   min_downside_vol: 0.03      # floor on downside vol so near-cash ETFs don't get inflated scores
   exclude_symbols: [BIL]      # cash/MM proxies are not tradeable directional ideas
   payoff_otm_pct: 0.03        # strike offset for the illustrative option payoff (3% OTM)
+
+# ---------------------------------------------------------------------------
+# News / sentiment signals (Phase 3)
+# FRED hard-sentiment series + GDELT news tone. Low-frequency series are causally
+# forward-filled to the trading calendar (never back-filled) and, for OOS features,
+# shifted by their publication lag (see universe.yaml) so nothing is used before release.
+# ---------------------------------------------------------------------------
+sentiment:
+  lookback_days: 504          # ~2y trailing window for z-scores (surveys are slow-moving)
+  change_window: 126          # ~6m window for the momentum/improving-vs-deteriorating term
+  squash_k: 1.5               # tanh(z / k) -> [-1, 1]
+  neutral_band: 0.10
+  gdelt:
+    timespan_months: 24       # history window requested from GDELT (DOC 2.0 caps lookback)
+    smooth_days: 7            # rolling-mean smoothing of the raw daily tone/volume
+    volume_weight: 0.35       # how much a news-volume spike adds to risk-off (0 = tone only)
 
 # ---------------------------------------------------------------------------
 # Refresh cadence

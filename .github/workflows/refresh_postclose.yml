@@ -1,5 +1,9 @@
 # =============================================================================
-# Post-close data refresh — full universe + Treasury curve + FRED extras.
+# Post-close data refresh — full universe + Treasury curve + FRED extras +
+# news/sentiment (FRED hard-sentiment series + GDELT news tone).
+#
+# `--scope full` runs `pipe.run_full(...)`, which now includes the sentiment pull.
+# Both new sources are keyless (FRED CSV + GDELT DOC API), so NO new secret is needed.
 #
 # Required repo secret (Settings → Secrets and variables → Actions):
 #   HF_TOKEN  — Hugging Face write token for the cache dataset repo

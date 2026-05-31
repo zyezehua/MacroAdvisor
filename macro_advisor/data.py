@@ -90,6 +90,19 @@ class MarketStore:
         col = "value" if "value" in df.columns else df.columns[0]
         return df[col].rename(series).dropna()
 
+    # -- news / sentiment (GDELT) ----------------------------------------
+    def news(self, label: str) -> pd.DataFrame | None:
+        """Best-effort GDELT news frame (``value`` = tone, optional ``volume`` column).
+
+        ``None`` if absent. Single-source: gated for error-severity QA like any series,
+        but it has no cross-check mirror, so callers treat it as confirmatory only.
+        """
+        df = self.cache.read(label, kind="series")
+        if df is None or df.empty:
+            return None
+        self._gate(f"gdelt:{label}")
+        return df.dropna(how="all").sort_index()
+
     # -- convenience helpers ---------------------------------------------
     def has_price(self, symbol: str) -> bool:
         return self.cache.exists(symbol, "price")

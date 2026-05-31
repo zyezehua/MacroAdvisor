@@ -16,7 +16,7 @@ RISK_ON = "risk_on"
 RISK_OFF = "risk_off"
 NEUTRAL = "neutral"
 
-CATEGORIES = ("technical", "volatility", "credit", "rates", "cross_asset")
+CATEGORIES = ("technical", "volatility", "credit", "rates", "cross_asset", "sentiment")
 
 
 @dataclass

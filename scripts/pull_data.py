@@ -48,6 +48,10 @@ def main() -> int:
     ap.add_argument("--start", default=None, help="override history start (YYYY-MM-DD)")
     ap.add_argument("--fred-extras", action="store_true",
                     help="also try optional FRED series (best-effort; skipped if blocked)")
+    ap.add_argument("--sentiment", action="store_true",
+                    help="also pull news/sentiment (FRED surveys + GDELT); on by default for --full")
+    ap.add_argument("--no-sentiment", action="store_true",
+                    help="skip news/sentiment even on --full")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
@@ -68,7 +72,8 @@ def main() -> int:
         elif args.core:
             results = pipe.run_core(start=args.start)
         else:
-            results = pipe.run_full(start=args.start, fred_extras=args.fred_extras)
+            results = pipe.run_full(start=args.start, fred_extras=args.fred_extras,
+                                    sentiment=not args.no_sentiment)
         return _summarize(pipe, results)
     finally:
         pipe.close()

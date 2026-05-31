@@ -12,7 +12,7 @@ import pandas as pd
 
 from macro_advisor.config import Config, load_config
 from macro_advisor.crosscheck import check_series, reconcile_levels
-from macro_advisor.ingest import fred, treasury, yahoo
+from macro_advisor.ingest import fred, gdelt, treasury, yahoo
 from macro_advisor.ingest.base import PullResult
 from macro_advisor.storage import ParquetCache, ProvenanceDB
 
@@ -109,11 +109,33 @@ class DataPipeline:
             results[res.key] = res
         return results
 
+    def pull_sentiment(self, start: str | None = None) -> dict[str, PullResult]:
+        """Best-effort news/sentiment: FRED hard-sentiment series + GDELT news tone.
+
+        Single-source (no cross-check mirror); degrades silently when a source is
+        unreachable. FRED series use the keyless CSV endpoint; GDELT the keyless DOC API.
+        """
+        results: dict[str, PullResult] = {}
+        for item in self.cfg.fred_sentiment():
+            res = fred.fetch(item["series"], start=start)
+            flags = self._series_flags(res.df) if res.ok else []
+            self._commit(res, flags)
+            results[res.key] = res
+        gcfg = (self.cfg.sentiment.get("gdelt") or {})
+        months = int(gcfg.get("timespan_months", 24))
+        for item in self.cfg.news_sources():
+            res = gdelt.fetch(item["label"], item["query"], timespan_months=months)
+            flags = self._series_flags(res.df) if res.ok else []
+            self._commit(res, flags)
+            results[res.key] = res
+        return results
+
     # -- batch runs ------------------------------------------------------
     def run(self, tiers: tuple[str, ...], start: str | None = None,
-            fred_extras: bool = False) -> dict[str, PullResult]:
+            fred_extras: bool = False, sentiment: bool = False) -> dict[str, PullResult]:
         """Pull every Yahoo price symbol in the given tiers; add the Treasury curve
-        (and optional FRED extras) when the rates tier is included."""
+        (and optional FRED extras) when the rates tier is included; add news/sentiment
+        series when ``sentiment`` is set."""
         start = start or self.cfg.universe["meta"]["history_start"]
         results: dict[str, PullResult] = {}
 
@@ -130,15 +152,23 @@ class DataPipeline:
             if fred_extras:
                 for key, res in self.pull_fred_optional(start=start).items():
                     results[key] = res
+
+        if sentiment:
+            for key, res in self.pull_sentiment(start=start).items():
+                results[key] = res
+                log.info("sent  %-10s %-6s rows=%s",
+                         res.symbol, res.status, res.coverage()[2])
         return results
 
     def run_core(self, **kw) -> dict[str, PullResult]:
         """Light/intraday scope: core stress universe only."""
         kw.pop("fred_extras", None)
+        kw.pop("sentiment", None)
         return self.run(("core",), **kw)
 
     def run_full(self, **kw) -> dict[str, PullResult]:
         """Full scope: core + backtest equity + backtest rates (Treasury curve)."""
+        kw.setdefault("sentiment", True)
         return self.run(("core", "backtest_equity", "backtest_rates"), **kw)
 
     def close(self) -> None:
