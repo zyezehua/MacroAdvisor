@@ -3,12 +3,12 @@
 # full CSS + Plotly template that builds on these base colors.
 [theme]
 base = "dark"
-backgroundColor = "#0b1020"
-secondaryBackgroundColor = "#131a2e"
-primaryColor = "#22d3ee"
-textColor = "#e6edf6"
-borderColor = "#233049"
-linkColor = "#22d3ee"
+backgroundColor = "#172139"
+secondaryBackgroundColor = "#22304f"
+primaryColor = "#34dbf0"
+textColor = "#eef4fc"
+borderColor = "#3a4d77"
+linkColor = "#34dbf0"
 font = "sans serif"
 
 [server]
