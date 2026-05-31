@@ -108,7 +108,8 @@ def _load_oos() -> dict:
     _sync_cache()
     out: dict[str, pd.DataFrame] = {}
     base = _CFG.path("root") / "oos"
-    for name in ("metrics", "equity", "forecast", "attrib", "stress", "meta"):
+    for name in ("metrics", "equity", "forecast", "attrib", "stress", "meta",
+                 "diagnostics", "reliability", "conviction"):
         f = base / f"{name}.parquet"
         if f.exists():
             out[name] = pd.read_parquet(f)
@@ -374,7 +375,11 @@ def main() -> None:
             if not meta.empty:
                 st.caption(f"Walk-forward OOS forecast · as of {meta.iloc[0].get('asof','?')} · "
                            "+1 = up / −1 = down / 0 = flat over the horizon")
-            for model_label, model_key in (("Interpretable (linear)", "linear"), ("ML (gradient-boosted trees)", "gbm")):
+            present = set(fc["model"].unique())
+            model_views = [("Interpretable (linear)", "linear"),
+                           ("ML (gradient-boosted trees)", "gbm"),
+                           ("Stacked ensemble (meta-learner)", "stack")]
+            for model_label, model_key in [mv for mv in model_views if mv[1] in present]:
                 st.subheader(model_label)
                 mfc = fc[fc["model"] == model_key]
                 if mfc.empty:
@@ -407,7 +412,44 @@ def main() -> None:
                                .sort_values(ascending=False).head(8))
                         st.caption("Top drivers: " + " · ".join(f"{f} ({v:.3f})" for f, v in top.items()))
             st.caption("OOS = purged/embargoed walk-forward; the linear model is read off its "
-                       "coefficients, the GBM off SHAP values. Research only — not investment advice.")
+                       "coefficients, the GBM off SHAP values, the stack off its blended bases. "
+                       "Research only — not investment advice.")
+
+            # -- Model diagnostics (Phase 4) ---------------------------------
+            diag = oos.get("diagnostics", pd.DataFrame())
+            rel = oos.get("reliability", pd.DataFrame())
+            conv = oos.get("conviction", pd.DataFrame())
+            if not diag.empty:
+                with st.expander("📊 Model diagnostics (calibration & reliability)", expanded=False):
+                    st.caption("Are the probabilities honest and do high-conviction calls win more? "
+                               "Lower Brier/log-loss is better; calibration should track the diagonal.")
+                    show = diag.copy()
+                    st.dataframe(show, hide_index=True, width="stretch", column_config={
+                        "hit_rate": st.column_config.NumberColumn("hit rate", format="%.3f"),
+                        "brier_up": st.column_config.NumberColumn("Brier (up)", format="%.3f"),
+                        "logloss": st.column_config.NumberColumn("log-loss", format="%.3f"),
+                        "importance_stability": st.column_config.NumberColumn("driver stability ρ", format="%.2f"),
+                    })
+                    if not rel.empty:
+                        rc = st.columns(2)
+                        for col, hk in zip(rc, _HNAME):
+                            with col:
+                                st.markdown(f"**Calibration — {_HNAME[hk]}**")
+                                sub = rel[rel["horizon"] == hk]
+                                if sub.empty:
+                                    st.caption("— no data —")
+                                    continue
+                                piv = sub.pivot_table(index="pred_mean", columns="model",
+                                                      values="emp_freq", aggfunc="mean").sort_index()
+                                piv["ideal"] = piv.index           # the y=x reference line
+                                st.line_chart(piv, height=220)
+                    if not conv.empty:
+                        st.markdown("**Hit-rate by conviction bucket**")
+                        cpiv = conv.assign(bucket=lambda d: d["conv_lo"].round(2).astype(str) + "–"
+                                           + d["conv_hi"].round(2).astype(str))
+                        st.dataframe(cpiv[["model", "horizon", "bucket", "count", "hit_rate"]],
+                                     hide_index=True, width="stretch", column_config={
+                                         "hit_rate": st.column_config.NumberColumn("hit rate", format="%.3f")})
 
     # -- Backtest --------------------------------------------------------
     with backtest_tab:

@@ -24,8 +24,15 @@ def _dates(panel: pd.DataFrame) -> np.ndarray:
 
 def walk_forward(panel: pd.DataFrame, label: pd.Series, feat_cols: list[str],
                  *, model_name: str, kind: str, horizon: int,
-                 train_min_days: int, test_days: int, embargo_days: int) -> pd.DataFrame:
-    """Run expanding-window walk-forward; return OOS predictions joined with realized labels."""
+                 train_min_days: int, test_days: int, embargo_days: int,
+                 model_params: dict | None = None,
+                 weight_fn=None) -> pd.DataFrame:
+    """Run expanding-window walk-forward; return OOS predictions joined with realized labels.
+
+    ``model_params`` is forwarded to the model family (calibration / tuning / hyper config).
+    ``weight_fn(dates, y) -> sample_weight`` (Phase-4 workstream C) supplies per-row training
+    weights; both are leakage-safe because they only ever see the training fold's own rows.
+    """
     dates = _dates(panel)
     purge = horizon + embargo_days
     y_all = label.reindex(panel.index)
@@ -51,7 +58,10 @@ def walk_forward(panel: pd.DataFrame, label: pd.Series, feat_cols: list[str],
             start += test_days
             continue
 
-        model = make_model(model_name, kind).fit(Xtr, ytr)
+        tr_dates = Xtr.index.get_level_values("date")
+        sw = weight_fn(tr_dates, ytr) if weight_fn is not None else None
+        model = make_model(model_name, kind, params=model_params).fit(
+            Xtr, ytr, sample_weight=sw, dates=tr_dates, purge=purge)
         preds = model.predict(Xte)
         preds["y"] = y_all[test_mask].to_numpy()
         out.append(preds)
@@ -67,14 +77,19 @@ def walk_forward(panel: pd.DataFrame, label: pd.Series, feat_cols: list[str],
 
 
 def final_forecast(panel: pd.DataFrame, label: pd.Series, feat_cols: list[str],
-                   *, model_name: str, kind: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+                   *, model_name: str, kind: str,
+                   model_params: dict | None = None, horizon: int = 0,
+                   embargo_days: int = 0, weight_fn=None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Fit on all labelled history; return (latest-date predictions, attribution for them)."""
     y_all = label.reindex(panel.index)
     ok = y_all.notna().to_numpy()
     Xtr, ytr = panel.loc[ok, feat_cols], y_all[ok]
     if len(ytr) == 0 or (kind == "clf" and ytr.nunique() < 2):
         return pd.DataFrame(), pd.DataFrame()
-    model = make_model(model_name, kind).fit(Xtr, ytr)
+    tr_dates = Xtr.index.get_level_values("date")
+    sw = weight_fn(tr_dates, ytr) if weight_fn is not None else None
+    model = make_model(model_name, kind, params=model_params).fit(
+        Xtr, ytr, sample_weight=sw, dates=tr_dates, purge=horizon + embargo_days)
 
     last_date = panel.index.get_level_values("date").max()
     Xlatest = panel.loc[panel.index.get_level_values("date") == last_date, feat_cols]

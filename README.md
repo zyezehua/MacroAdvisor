@@ -2,7 +2,7 @@
 
 An evidence-based, multi-asset market regime & trade advisory engine for US markets.
 
-> **Status:** Phase 3 (override UI · custom-strategy lab · news/sentiment signals). See [Roadmap](#roadmap).
+> **Status:** Phase 4 (ML uplift · calibration · tuning · stacking · diagnostics). See [Roadmap](#roadmap).
 
 ## What it does
 
@@ -75,10 +75,11 @@ which unlock the corresponding FRED-backed signals.
 ## Prediction & backtest (Phase 2a)
 
 Walk-forward **out-of-sample** forecasting of per-asset forward returns (direction + magnitude)
-and the forward stress-index path, with **two model families shown side by side**: an
-interpretable linear model (coefficient attribution) and a gradient-boosted-tree model (SHAP
-attribution). Splits are **purged + embargoed** so no training row's forward label overlaps its
-test block — the no-leakage guarantee is asserted in the tests.
+and the forward stress-index path, with **model families shown side by side**: an interpretable
+linear model (coefficient attribution), a gradient-boosted-tree model (SHAP attribution), and — as
+of Phase 4 — a stacked meta-learner (see [ML uplift](#ml-uplift-phase-4)). Splits are **purged +
+embargoed** so no training row's forward label overlaps its test block — the no-leakage guarantee
+is asserted in the tests.
 
 ```bash
 pip install -r requirements.txt -r requirements-phase2.txt   # lightgbm/shap for training only
@@ -147,6 +148,40 @@ python scripts/pull_data.py --full           # full pull now includes news/senti
 python scripts/pull_data.py --full --no-sentiment   # opt out of the sentiment pull
 ```
 
+## ML uplift (Phase 4)
+
+Phase 4 squeezes genuine out-of-sample performance out of the Phase-2 harness **without
+sacrificing the no-leakage / explainable guarantees**. Every model-selection step runs on a
+**purged** inner split of the *training fold only* ([predict/selection.py](macro_advisor/predict/selection.py)) —
+it never touches the outer OOS test block, so the walk-forward guarantee is preserved (and
+asserted in [tests/test_tuning.py](tests/test_tuning.py)). All steps are config-gated and default-on
+in a full nightly run; `--fast` skips the heavy ones.
+
+- **Probability calibration** — classifier `p_up`/`p_down` are wrapped in a purged-CV
+  `CalibratedClassifierCV`, so the conviction gate the recommender trades on is honest. Attribution
+  is unaffected (it reads a separate base explainer fit on the full fold).
+- **Sample weighting** ([predict/weighting.py](macro_advisor/predict/weighting.py)) — exponential
+  recency decay + López-de-Prado label-uniqueness (overlapping forward windows are down-weighted),
+  normalised to mean 1 so regularization strength is unchanged.
+- **Leakage-safe hyperparameter tuning** — a small per-family grid scored by purged inner
+  walk-forward CV (negative log-loss / MSE), replacing the hardcoded Phase-2 hyperparameters.
+- **Stacking ensemble** (`stack`) — promotes the recommender's ad-hoc agreement average into a
+  proper out-of-fold meta-learner over the base families; shown side-by-side as a third model and
+  used as the headline ensemble in Trade Ideas. Attribution = base attributions blended by their
+  learned meta weight, so it stays explainable.
+- **OOS diagnostics** ([predict/diagnostics.py](macro_advisor/predict/diagnostics.py)) — Brier,
+  log-loss, a calibration/reliability curve, hit-rate by conviction bucket, and feature-importance
+  stability (driver stability ρ). Shipped as `diagnostics/reliability/conviction.parquet` and shown
+  in the **Predictions → Model diagnostics** panel (the app reads parquet only — still no ML deps).
+
+```bash
+python scripts/train_and_backtest.py            # full uplift (calibration + tuning + stack + diag)
+python scripts/train_and_backtest.py --fast     # coarse: tuning/diag skipped for a quick check
+```
+
+Config lives under `predict.{calibrate,sample_weight,tune,stack}` in
+[config/settings.yaml](config/settings.yaml). Research output only — not investment advice.
+
 ## Deployment (Streamlit Cloud)
 
 The cache under `data/` is gitignored, so the deployed app gets its data from a **public
@@ -187,7 +222,8 @@ No `FRED_API_KEY` is needed — the FRED adapter uses the keyless CSV endpoint.
 - **Phase 1** — signal library + stress index + read-only dashboard ✓
 - **Phase 2a** — walk-forward OOS prediction + backtester ✓
 - **Phase 2b** — recommendation/ranking engine + trade-idea dashboard ✓
-- **Phase 3** — manual override UI + custom-strategy lab + news/sentiment signals ← *current*
+- **Phase 3** — manual override UI + custom-strategy lab + news/sentiment signals ✓
+- **Phase 4** — ML uplift: calibration · sample weighting · leakage-safe tuning · stacking · diagnostics ← *current*
 
 ## Disclaimer
 

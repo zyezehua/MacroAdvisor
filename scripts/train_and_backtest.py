@@ -12,6 +12,9 @@ Artifacts land under ``data/oos/`` and are uploaded to HF alongside the price ca
   forecast.parquet  latest per (model,horizon,symbol): direction, p_up/p_down, expected return
   attrib.parquet    latest top feature drivers per (model,horizon)
   stress.parquet    latest forward stress-change forecast per (model,horizon)
+  diagnostics.parquet  OOS Brier / log-loss / hit-rate / driver-stability per (model,horizon)
+  reliability.parquet  calibration curve (predicted vs realized up-freq) per (model,horizon)
+  conviction.parquet   hit-rate by conviction bucket per (model,horizon)
   meta.parquet      asof / universe / params
 
 Examples:
@@ -34,7 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from macro_advisor.backtest import engine                       # noqa: E402
 from macro_advisor.config import load_config                    # noqa: E402
 from macro_advisor.data import MarketStore                      # noqa: E402
-from macro_advisor.predict import features, labels, walkforward # noqa: E402
+from macro_advisor.predict import diagnostics, features, labels, walkforward, weighting  # noqa: E402
 from macro_advisor.signals import compute_all                   # noqa: E402
 from macro_advisor.storage import remote                        # noqa: E402
 from macro_advisor.stress import compute_stress                 # noqa: E402
@@ -52,6 +55,40 @@ def _asset_label_series(prices, h, band):
         parts.append(lab.set_index("symbol", append=True))
     df = pd.concat(parts).reorder_levels(["date", "symbol"]).sort_index()
     return df["direction"], df["fwd_ret"]
+
+
+def _model_params(cfg, fast: bool) -> dict:
+    """Assemble the Phase-4 model params (calibration / tuning / stacking) from config.
+
+    ``--fast`` disables hyperparameter tuning (the heavy step) when ``tune.fast_disable`` is set,
+    so a quick local run stays quick while a full nightly run gets the tuned models.
+    """
+    p = cfg.predict
+    tune = dict(p.get("tune", {}))
+    if fast and tune.get("fast_disable", True):
+        tune["enabled"] = False
+    return {"calibrate": p.get("calibrate", {}), "tune": tune, "stack": p.get("stack", {})}
+
+
+def _importance_stability(panel, lab, feat, *, model, mp, h, embargo, attrib_now):
+    """Spearman corr of feature importances now vs ~1y earlier — are the drivers stable?"""
+    if attrib_now is None or attrib_now.empty:
+        return float("nan")
+    imp_now = attrib_now.abs().mean()
+    dates = panel.index.get_level_values("date")
+    cutoff = dates.max() - pd.Timedelta(days=int(round(252 * 7 / 5)))
+    prev = panel[dates <= cutoff]
+    if prev.empty:
+        return float("nan")
+    _, attrib_prev = walkforward.final_forecast(prev, lab, feat, model_name=model, kind="clf",
+                                                model_params=mp, horizon=h, embargo_days=embargo)
+    if attrib_prev is None or attrib_prev.empty:
+        return float("nan")
+    imp_prev = attrib_prev.abs().mean()
+    common = imp_now.index.intersection(imp_prev.index)
+    if len(common) < 3:
+        return float("nan")
+    return round(float(imp_now[common].corr(imp_prev[common], method="spearman")), 3)
 
 
 def _stress_panel(store, level, h):
@@ -94,32 +131,48 @@ def main() -> int:
         band = float(cfg.predict.get("direction_neutral_band", 0.005))
         horizons = {"short": cfg.horizons["short"]["max_days"],
                     "med_long": cfg.horizons["med_long"]["max_days"]}
+        mp = _model_params(cfg, fast=args.fast)             # Phase-4 calibration/tuning/stack params
+        sw_cfg = cfg.predict.get("sample_weight", {})
+        embargo = wf["embargo_days"]
 
         ust = store.try_yield("UST3M")
         rf_daily = (ust / 100.0 / ANN) if ust is not None else 0.0
 
         metrics_rows, equity_cols, fc_rows, attrib_rows, stress_rows = [], {}, [], [], []
+        diag_rows, rel_rows, conv_rows = [], [], []
 
         for hname, h in horizons.items():
             dir_lab, ret_lab = _asset_label_series(prices, h, band)
             spanel, sfeat, slab = _stress_panel(store, level, h)
+            wfn = weighting.make_weight_fn(sw_cfg, h)        # leakage-safe per-fold training weights
             for m in models:
                 tag = f"{m}_{hname}"
                 log.info("walk-forward %s (h=%d)", tag, h)
                 oos = walkforward.walk_forward(
                     panel, dir_lab, feat, model_name=m, kind="clf", horizon=h,
                     train_min_days=wf["train_min_days"], test_days=wf["test_days"],
-                    embargo_days=wf["embargo_days"])
+                    embargo_days=embargo, model_params=mp, weight_fn=wfn)
                 if not oos.empty:
                     bt = engine.run(oos, prices, cfg=cfg, rf_daily=rf_daily)
                     metrics_rows.append({"strategy": tag, "model": m, "horizon": hname,
                                          **bt["metrics"], "avg_gross": round(bt["avg_gross"], 3),
                                          "oos_hit_rate": round(float((oos["pred"] == oos["y"]).mean()), 4)})
                     equity_cols[tag] = bt["equity"]
+                    # -- Phase-4 OOS diagnostics --------------------------------
+                    rel = diagnostics.reliability(oos); rel["model"], rel["horizon"] = m, hname
+                    conv = diagnostics.conviction_table(oos); conv["model"], conv["horizon"] = m, hname
+                    rel_rows.append(rel); conv_rows.append(conv)
+                    diag = {"model": m, "horizon": hname, **diagnostics.summary(oos)}
+                else:
+                    diag = None
 
                 # current live forecast: direction + expected magnitude
-                fc_dir, attrib = walkforward.final_forecast(panel, dir_lab, feat, model_name=m, kind="clf")
-                fc_mag, _ = walkforward.final_forecast(panel, ret_lab, feat, model_name=m, kind="reg")
+                fc_dir, attrib = walkforward.final_forecast(panel, dir_lab, feat, model_name=m,
+                                                            kind="clf", model_params=mp,
+                                                            horizon=h, embargo_days=embargo, weight_fn=wfn)
+                fc_mag, _ = walkforward.final_forecast(panel, ret_lab, feat, model_name=m, kind="reg",
+                                                       model_params=mp, horizon=h,
+                                                       embargo_days=embargo, weight_fn=wfn)
                 if not fc_dir.empty:
                     j = fc_dir.copy()
                     j["exp_ret"] = fc_mag["pred"] if not fc_mag.empty else float("nan")
@@ -130,9 +183,15 @@ def main() -> int:
                     for f, v in top.items():
                         attrib_rows.append({"model": m, "horizon": hname, "feature": f,
                                             "importance": round(float(v), 5)})
+                if diag is not None:
+                    diag["importance_stability"] = (float("nan") if args.fast else
+                        _importance_stability(panel, dir_lab, feat, model=m, mp=mp, h=h,
+                                              embargo=embargo, attrib_now=attrib))
+                    diag_rows.append(diag)
 
                 # forward stress forecast (latest)
-                sfc, _ = walkforward.final_forecast(spanel, slab, sfeat, model_name=m, kind="reg")
+                sfc, _ = walkforward.final_forecast(spanel, slab, sfeat, model_name=m, kind="reg",
+                                                    model_params=mp, horizon=h, embargo_days=embargo)
                 if not sfc.empty:
                     stress_rows.append({"model": m, "horizon": hname,
                                         "current_stress": round(float(level.dropna().iloc[-1]), 1),
@@ -155,6 +214,10 @@ def main() -> int:
         pd.concat(fc_rows, ignore_index=True).to_parquet(out / "forecast.parquet")
         pd.DataFrame(attrib_rows).to_parquet(out / "attrib.parquet")
         pd.DataFrame(stress_rows).to_parquet(out / "stress.parquet")
+        # Phase-4 diagnostics (calibration / Brier / log-loss / conviction / driver stability)
+        pd.DataFrame(diag_rows).to_parquet(out / "diagnostics.parquet")
+        (pd.concat(rel_rows, ignore_index=True) if rel_rows else pd.DataFrame()).to_parquet(out / "reliability.parquet")
+        (pd.concat(conv_rows, ignore_index=True) if conv_rows else pd.DataFrame()).to_parquet(out / "conviction.parquet")
         pd.DataFrame([{"asof": asof, "n_assets": len(prices), "models": ",".join(models),
                        "test_days": wf["test_days"]}]).to_parquet(out / "meta.parquet")
 
