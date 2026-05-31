@@ -48,10 +48,11 @@ def test_fetch_builds_tone_and_volume_frame(monkeypatch):
 
 
 def test_fetch_degrades_when_tone_missing(monkeypatch):
+    # best-effort/single-source: an unreachable GDELT is "unavailable", not a hard error
     monkeypatch.setattr(gdelt.requests, "get",
                         lambda *a, **k: _FakeResp({"timeline": []}))
     res = gdelt.fetch("news_markets", "financial markets")
-    assert not res.ok and res.status == "error"
+    assert not res.ok and res.status == "unavailable"
 
 
 def test_parse_timeline_json_handles_gdelt_dates():
