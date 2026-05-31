@@ -35,16 +35,17 @@ from macro_advisor.stress import StressResult, compute_stress
 from macro_advisor.strategy import available_inputs, evaluate as eval_strategy, spec_from_json, spec_to_json
 from macro_advisor.strategy.library import presets
 from macro_advisor.strategy.spec import REBALANCES, Rule, StrategySpec
+from macro_advisor.dashboard import theme
+
+theme.apply_default()   # register the neon Plotly template as the chart default
 
 _HNAME = {"short": "Short (1–5d)", "med_long": "Med-long (1–3m)"}
 
 _CFG = load_config()
 _TTL = int((_CFG.remote or {}).get("app_cache_ttl_min", 30)) * 60
 
-_BAND_COLORS = {
-    "calm": "#2e7d32", "normal": "#9e9d24", "elevated": "#f9a825",
-    "stressed": "#ef6c00", "crisis": "#c62828",
-}
+_BAND_COLORS = theme.BAND_COLORS
+_PAL = theme.PALETTE
 _DIR_BADGE = {"risk_on": "🟢 on", "risk_off": "🔴 off", "neutral": "⚪ neutral"}
 
 
@@ -237,7 +238,7 @@ def _render_strategy_lab(signal_names: list[str]) -> None:
                                  line=dict(width=2.5 if col == spec.name else 1.5)))
     fig.update_layout(title="Custom-strategy equity (growth of $1) vs SPY", height=420,
                       margin=dict(t=50, b=20, l=10, r=10), legend_title="strategy")
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(theme.style_fig(fig), width="stretch")
     mt = out["metrics"].copy()
     for c in ("max_drawdown", "cagr", "hit_rate"):
         if c in mt.columns:
@@ -253,33 +254,28 @@ def _render_strategy_lab(signal_names: list[str]) -> None:
 
 
 def _gauge(stress: StressResult) -> go.Figure:
-    color = _BAND_COLORS.get(stress.label, "#607d8b")
+    color = _BAND_COLORS.get(stress.label, _PAL["muted"])
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
         value=stress.level,
-        number={"suffix": " / 100", "font": {"size": 40}},
+        number={"suffix": " / 100", "font": {"size": 40, "color": color}},
         title={"text": f"Market Stress — <b>{stress.label.upper()}</b>"},
         gauge={
-            "axis": {"range": [0, 100]},
-            "bar": {"color": color},
-            "steps": [
-                {"range": [0, 30], "color": "#e8f5e9"},
-                {"range": [30, 55], "color": "#f9fbe7"},
-                {"range": [55, 70], "color": "#fff8e1"},
-                {"range": [70, 85], "color": "#fff3e0"},
-                {"range": [85, 100], "color": "#ffebee"},
-            ],
+            "axis": {"range": [0, 100], "tickcolor": _PAL["muted"]},
+            "bar": {"color": color, "thickness": 0.7},
+            "bordercolor": _PAL["border"],
+            "steps": theme.GAUGE_STEPS,
         },
     ))
     fig.update_layout(height=300, margin=dict(t=60, b=10, l=30, r=30))
-    return fig
+    return theme.style_fig(fig)
 
 
 def _decomposition(stress: StressResult) -> go.Figure:
     comps = stress.components
     names = [c.component for c in comps]
     vals = [c.contribution for c in comps]
-    colors = ["#c62828" if v >= 0 else "#2e7d32" for v in vals]  # +stress red, -stress green
+    colors = [_PAL["down"] if v >= 0 else _PAL["up"] for v in vals]  # +stress red, -stress green
     fig = go.Figure(go.Bar(x=vals, y=names, orientation="h", marker_color=colors,
                            text=[f"{v:+.3f}" for v in vals], textposition="outside"))
     fig.update_layout(
@@ -287,21 +283,25 @@ def _decomposition(stress: StressResult) -> go.Figure:
         height=320, margin=dict(t=50, b=20, l=10, r=10),
         xaxis_title="weight × stress  (→ risk-off / ← risk-on)",
     )
-    return fig
+    return theme.style_fig(fig)
 
 
 def _history(stress: StressResult) -> go.Figure:
     h = stress.history.tail(504)  # ~2y
-    fig = go.Figure(go.Scatter(x=h.index, y=h.values, mode="lines", line=dict(color="#37474f")))
-    for edge, col in [(30, "#2e7d32"), (55, "#9e9d24"), (70, "#f9a825"), (85, "#c62828")]:
+    fig = go.Figure(go.Scatter(x=h.index, y=h.values, mode="lines",
+                               line=dict(color=_PAL["cyan"], width=2),
+                               fill="tozeroy", fillcolor="rgba(34,211,238,0.06)"))
+    for edge, col in [(30, _BAND_COLORS["calm"]), (55, _BAND_COLORS["normal"]),
+                      (70, _BAND_COLORS["stressed"]), (85, _BAND_COLORS["crisis"])]:
         fig.add_hline(y=edge, line_dash="dot", line_color=col, opacity=0.4)
     fig.update_layout(title="Stress history (~2y)", height=320,
                       margin=dict(t=50, b=20, l=10, r=10), yaxis_range=[0, 100])
-    return fig
+    return theme.style_fig(fig)
 
 
 def main() -> None:
     st.set_page_config(page_title="MacroAdvisor", layout="wide", page_icon="📊")
+    theme.inject_css()
     st.title("📊 MacroAdvisor")
     st.caption("Evidence-based market regime & stress read, OOS forecasts, risk-budgeted trade "
                "ideas, and a custom-strategy lab — Phase 3.  Research only; not investment advice.")
@@ -435,7 +435,7 @@ def main() -> None:
                                              line=dict(width=2.5 if c == "SPY" else 1.5)))
                 fig.update_layout(title="OOS equity curves (growth of $1)", height=420,
                                   margin=dict(t=50, b=20, l=10, r=10), legend_title="strategy")
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(theme.style_fig(fig), width="stretch")
             st.caption("Sortino-primary (the locked ranking objective). Costs + slippage applied; "
                        "vol-targeted within the risk budget; only OOS-predicted dates trade.")
 
@@ -501,10 +501,10 @@ def main() -> None:
                         })
                         bar = go.Figure(go.Bar(
                             x=alloc["symbol"], y=(alloc["weight"] * 100),
-                            marker_color=["#2e7d32" if d == "long" else "#c62828" for d in alloc["direction"]]))
+                            marker_color=[_PAL["up"] if d == "long" else _PAL["down"] for d in alloc["direction"]]))
                         bar.update_layout(title="Allocation (%, signed)", height=300,
                                           margin=dict(t=40, b=20, l=10, r=10))
-                        st.plotly_chart(bar, width="stretch")
+                        st.plotly_chart(theme.style_fig(bar), width="stretch")
                         s = hr.summary
                         cls = " · ".join(f"{k} {v*100:.0f}%" for k, v in s["by_class"].items())
                         st.caption(f"Gross {s['gross']*100:.0f}% (cap 100%) · net {s['net']*100:+.0f}% · "
@@ -530,15 +530,16 @@ def main() -> None:
                         pay = payoff_mod.illustrate(spot, int(top["direction"]), otm_pct=otm)
                         st.markdown(f"**Illustrative payoff — {top['symbol']} ({pay.label})**")
                         fig = go.Figure(go.Scatter(x=pay.x, y=pay.y, mode="lines",
-                                                   line=dict(color="#4fc3f7", width=2)))
-                        fig.add_hline(y=0, line_dash="dot", line_color="#888")
+                                                   line=dict(color=_PAL["cyan"], width=2),
+                                                   fill="tozeroy", fillcolor="rgba(34,211,238,0.05)"))
+                        fig.add_hline(y=0, line_dash="dot", line_color=_PAL["muted"])
                         for name, xv in pay.markers.items():
-                            fig.add_vline(x=xv, line_dash="dot", line_color="#aaa",
+                            fig.add_vline(x=xv, line_dash="dot", line_color=_PAL["border"],
                                           annotation_text=name, annotation_position="top")
                         fig.update_layout(height=320, margin=dict(t=30, b=20, l=10, r=10),
                                           xaxis_title=f"{top['symbol']} price at expiry",
                                           yaxis_title="P&L (per unit, illustrative)")
-                        st.plotly_chart(fig, width="stretch")
+                        st.plotly_chart(theme.style_fig(fig), width="stretch")
                         st.caption("Illustration of how the directional view *could* be expressed with "
                                    "options — payoff shape at expiry only, no pricing/greeks. Not a recommendation.")
 
