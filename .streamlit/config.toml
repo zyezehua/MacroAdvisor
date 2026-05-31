@@ -1,6 +1,15 @@
 # Streamlit configuration for the MacroAdvisor dashboard (local + Streamlit Cloud).
+# Theme: "deep-space navy + neon glow" — see macro_advisor/dashboard/theme.py for the
+# full CSS + Plotly template that builds on these base colors.
 [theme]
 base = "dark"
+backgroundColor = "#0b1020"
+secondaryBackgroundColor = "#131a2e"
+primaryColor = "#22d3ee"
+textColor = "#e6edf6"
+borderColor = "#233049"
+linkColor = "#22d3ee"
+font = "sans serif"
 
 [server]
 headless = true
