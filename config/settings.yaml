@@ -86,6 +86,16 @@ crosscheck:
   min_history_days: 250       # below this a series is flagged thin
 
 # ---------------------------------------------------------------------------
+# Remote cache (Hugging Face Hub) — used for cloud deployment.
+# A GitHub Actions cron refreshes data and uploads the cache here; the deployed
+# dashboard downloads it on boot. Public dataset repo => app needs no token.
+# Override the repo with the MACROADVISOR_HF_REPO env var.
+# ---------------------------------------------------------------------------
+remote:
+  hf_repo: "zyezehua/macroadvisor-cache"
+  app_cache_ttl_min: 30       # dashboard re-pulls the HF snapshot at most this often
+
+# ---------------------------------------------------------------------------
 # Storage
 # ---------------------------------------------------------------------------
 storage:

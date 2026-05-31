@@ -1,0 +1,56 @@
+# =============================================================================
+# Intraday data refresh — core stress universe only (equities, vol, credit, FX).
+# Lighter + more frequent than the post-close run; the Treasury curve and sector
+# breadth are refreshed post-close (they move on a daily cadence).
+#
+# Required repo secrets: HF_TOKEN (write). Optional: STREAMLIT_API_KEY, STREAMLIT_APP_ID.
+#
+# GitHub cron is UTC / no DST. 14:00–20:00 UTC spans the US cash session (covers
+# 09:30–16:00 ET in both EST and EDT, give or take the DST hour).
+# =============================================================================
+name: Refresh (intraday, core)
+
+on:
+  schedule:
+    - cron: "0 14-20 * * 1-5"   # hourly during US market hours, weekdays
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-py313-${{ hashFiles('requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-py313-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Refresh core cache and upload to HF Hub
+        run: python scripts/refresh_and_upload.py --scope core
+
+      - name: Reboot Streamlit Cloud app
+        if: ${{ secrets.STREAMLIT_APP_ID != '' }}
+        continue-on-error: true
+        run: |
+          status=$(curl --silent --output /dev/null --write-out "%{http_code}" \
+            --request POST \
+            --header "Authorization: Bearer ${{ secrets.STREAMLIT_API_KEY }}" \
+            --header "Content-Type: application/json" \
+            "https://api.streamlit.io/v1/apps/${{ secrets.STREAMLIT_APP_ID }}/reboot")
+          echo "Streamlit reboot HTTP $status"

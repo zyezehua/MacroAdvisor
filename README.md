@@ -71,6 +71,42 @@ streamlit run macro_advisor/dashboard/app.py   # interactive read-only dashboard
 Add `--fred-extras` to `pull_data.py` to also pull credit OAS / real-yield / breakeven series,
 which unlock the corresponding FRED-backed signals.
 
+## Deployment (Streamlit Cloud)
+
+The cache under `data/` is gitignored, so the deployed app gets its data from a **public
+Hugging Face Hub dataset repo**. A GitHub Actions cron refreshes the data and uploads it; the
+app downloads it on boot; the cron then reboots the app to pick it up.
+
+```
+GitHub Actions cron ──► scripts/refresh_and_upload.py ──► HF dataset repo
+                                                              │
+                          Streamlit Cloud app ◄──────────────┘ (downloads on boot)
+                          (rebooted by the cron after each refresh)
+```
+
+- **Refresh:** [.github/workflows/refresh_postclose.yml](.github/workflows/refresh_postclose.yml)
+  (full universe + FRED, 22:00 UTC weekdays) and
+  [.github/workflows/refresh_intraday.yml](.github/workflows/refresh_intraday.yml)
+  (core scope, hourly during US market hours).
+- **Sync:** [macro_advisor/storage/remote.py](macro_advisor/storage/remote.py) — `upload_cache`
+  (`HfApi.upload_folder`) and `ensure_cache` (`snapshot_download`). Repo defaults to
+  `zyezehua/macroadvisor-cache`; override with the `MACROADVISOR_HF_REPO` env var.
+- **App:** [macro_advisor/dashboard/app.py](macro_advisor/dashboard/app.py) downloads the cache on
+  first load (anonymous, since the repo is public) and recomputes signals/stress live.
+
+### One-time setup
+
+1. Create a Hugging Face **write** token → add repo secret `HF_TOKEN` (GitHub → Settings →
+   Secrets and variables → Actions). The dataset repo auto-creates on first upload; make it public.
+2. Seed the cache once: `HF_TOKEN=… python scripts/refresh_and_upload.py --scope full`.
+3. Deploy on [share.streamlit.io](https://share.streamlit.io): main file
+   `macro_advisor/dashboard/app.py`, **Python 3.13** (Streamlit Cloud's max; the data layer is 3.13-compatible).
+4. To enable instant refresh-after-cron, add repo secrets `STREAMLIT_API_KEY` and
+   `STREAMLIT_APP_ID` (from the Streamlit Cloud dashboard). Without them the app still picks up
+   fresh data on its next cold start / cache expiry.
+
+No `FRED_API_KEY` is needed — the FRED adapter uses the keyless CSV endpoint.
+
 ## Roadmap
 
 - **Phase 0** — scaffolding, config, data adapters (Yahoo+FRED), cross-check, storage ✓

@@ -5,8 +5,10 @@ Three views (tabs):
   * Signals      — every signal: score, direction, attribution, provenance, sparkline.
   * Data Health  — Phase-0 provenance + QA flags, so the integrity story is visible.
 
-Read-only: it loads from the local parquet/SQLite cache populated by
-``scripts/pull_data.py``. Run with: ``streamlit run macro_advisor/dashboard/app.py``.
+Data source: the local parquet/SQLite cache. Locally it's populated by
+``scripts/pull_data.py``; when deployed, it's downloaded on boot from the Hugging Face Hub
+dataset repo that the GitHub Actions cron refreshes. Run with:
+``streamlit run macro_advisor/dashboard/app.py``.
 """
 from __future__ import annotations
 
@@ -23,9 +25,14 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from macro_advisor.config import load_config
 from macro_advisor.data import MarketStore
 from macro_advisor.signals import compute_all
+from macro_advisor.storage import remote
 from macro_advisor.stress import StressResult, compute_stress
+
+_CFG = load_config()
+_TTL = int((_CFG.remote or {}).get("app_cache_ttl_min", 30)) * 60
 
 _BAND_COLORS = {
     "calm": "#2e7d32", "normal": "#9e9d24", "elevated": "#f9a825",
@@ -34,9 +41,32 @@ _BAND_COLORS = {
 _DIR_BADGE = {"risk_on": "🟢 on", "risk_off": "🔴 off", "neutral": "⚪ neutral"}
 
 
-@st.cache_data(ttl=900, show_spinner="Computing signals + stress…")
+def _hf_token() -> str | None:
+    """Optional HF token from Streamlit secrets (not needed for the public cache repo)."""
+    try:
+        return st.secrets.get("HF_TOKEN")  # type: ignore[no-any-return]
+    except Exception:
+        return None
+
+
+@st.cache_resource(ttl=_TTL, show_spinner="Fetching data cache from Hugging Face Hub…")
+def _sync_cache() -> str:
+    """Ensure a local data cache exists, downloading from HF Hub when absent (cloud boot).
+
+    Cached as a resource so it runs once per container; intraday freshness is delivered by
+    the cron's Streamlit-reboot step, which restarts the container and re-triggers this.
+    """
+    try:
+        downloaded = remote.ensure_cache(_CFG, token=_hf_token())
+        return "downloaded from HF Hub" if downloaded else "using local cache"
+    except Exception as exc:  # surfaced by the no-data guard in main()
+        return f"cache sync failed: {exc}"
+
+
+@st.cache_data(ttl=_TTL, show_spinner="Computing signals + stress…")
 def _load() -> dict:
     """Compute the engine once and return plain (cacheable) structures."""
+    _sync_cache()
     store = MarketStore()
     try:
         signals = compute_all(store)
@@ -125,8 +155,13 @@ def main() -> None:
     data = _load()
     stress: StressResult | None = data["stress"]
     if stress is None:
-        st.error("No signals available. Populate the cache first: "
-                 "`python scripts/pull_data.py --full`")
+        st.error(
+            "No signals available — the data cache is empty.\n\n"
+            f"- Cache sync: **{_sync_cache()}**\n"
+            "- Locally: run `python scripts/pull_data.py --full`\n"
+            "- Deployed: check the GitHub Actions refresh ran and the HF dataset repo "
+            f"`{remote.resolve_repo(_CFG)}` has data."
+        )
         st.stop()
 
     overview, signals_tab, health = st.tabs(["Overview", "Signals", "Data Health"])
