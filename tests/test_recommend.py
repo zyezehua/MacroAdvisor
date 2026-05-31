@@ -51,6 +51,25 @@ def test_score_and_rank_qualifies_and_orders(store2):
     assert (ranked["downside_vol"] > 0).all()
 
 
+def test_pinning_forces_low_conviction_idea_in(store2):
+    cfg = load_config().with_overrides(
+        {"recommend": {"min_conviction": 0.99, "pinned_symbols": ["BBB"]}})
+    ens = score.ensemble_frame(_forecast(), "short")
+    ranked = score.score_and_rank(ens, store2, cfg)
+    assert "BBB" in set(ranked["symbol"])           # pinned despite failing the 0.99 gate
+    assert bool(ranked.set_index("symbol").loc["BBB", "pinned"])
+
+
+def test_asset_class_filter_restricts(store2):
+    # AAA/BBB map to "equities" (fillna); restricting to rates leaves nothing unless pinned
+    cfg = load_config().with_overrides({"recommend": {"include_asset_classes": ["rates"]}})
+    ens = score.ensemble_frame(_forecast(), "short")
+    ranked = score.score_and_rank(ens, store2, cfg)
+    assert ranked.empty
+    cfg_eq = load_config().with_overrides({"recommend": {"include_asset_classes": ["equities"]}})
+    assert not score.score_and_rank(ens, store2, cfg_eq).empty
+
+
 def test_portfolio_respects_caps():
     cfg = load_config()
     rb = cfg.risk_budget

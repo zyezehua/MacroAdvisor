@@ -32,6 +32,9 @@ from macro_advisor.recommend import recommend as run_recommend
 from macro_advisor.signals import compute_all
 from macro_advisor.storage import remote
 from macro_advisor.stress import StressResult, compute_stress
+from macro_advisor.strategy import available_inputs, evaluate as eval_strategy, spec_from_json, spec_to_json
+from macro_advisor.strategy.library import presets
+from macro_advisor.strategy.spec import REBALANCES, Rule, StrategySpec
 
 _HNAME = {"short": "Short (1–5d)", "med_long": "Med-long (1–3m)"}
 
@@ -111,6 +114,144 @@ def _load_oos() -> dict:
     return out
 
 
+def _sidebar_overrides(symbols: list[str]) -> tuple[object, bool]:
+    """Render the live risk/ranking override panel; return (effective Config, overrides_active).
+
+    Patches only ``risk_budget`` + ``recommend``, so the (cached) signals/stress are untouched
+    and only the Trade Ideas tab recomputes — cheap, pure pandas."""
+    rb, rc = _CFG.risk_budget, _CFG.recommend
+    st.sidebar.header("⚙️ Risk & ranking overrides")
+    st.sidebar.caption("Reshape the Trade Ideas list live. Defaults match the locked risk budget.")
+    notional = st.sidebar.number_input("Notional ($)", min_value=10_000, max_value=10_000_000,
+                                       value=int(rb["notional_usd"]), step=10_000)
+    per_pos = st.sidebar.slider("Per-position cap", 0.05, 0.50, float(rb["per_position_cap"]), 0.01)
+    per_cls = st.sidebar.slider("Per-asset-class cap", 0.20, 1.0, float(rb["per_asset_class_cap"]), 0.05)
+    leverage = st.sidebar.slider("Gross leverage", 0.25, 2.0, float(rb["max_leverage"]), 0.05)
+    objective = st.sidebar.selectbox("Ranking objective", ["sortino", "sharpe"],
+                                     index=0 if rb.get("ranking_objective", "sortino") == "sortino" else 1)
+    conviction = st.sidebar.slider("Min conviction", 0.50, 0.90, float(rc.get("min_conviction", 0.55)), 0.01)
+    require_agree = st.sidebar.checkbox("Require model agreement", bool(rc.get("require_agreement", False)))
+    classes = st.sidebar.multiselect("Asset classes", ["equities", "rates"], default=["equities", "rates"])
+    pinned = st.sidebar.multiselect("Pin symbols (always include)", symbols, default=[])
+    base_excl = list(rc.get("exclude_symbols", []))
+    excluded = st.sidebar.multiselect("Exclude symbols", sorted(set(symbols) | set(base_excl)),
+                                      default=[s for s in base_excl if s in symbols] or base_excl)
+
+    patch = {
+        "risk_budget": {"notional_usd": int(notional), "per_position_cap": float(per_pos),
+                        "per_asset_class_cap": float(per_cls), "max_leverage": float(leverage),
+                        "ranking_objective": objective},
+        "recommend": {"min_conviction": float(conviction), "require_agreement": bool(require_agree),
+                      "include_asset_classes": classes, "pinned_symbols": pinned,
+                      "exclude_symbols": excluded},
+    }
+    active = (int(notional) != int(rb["notional_usd"]) or per_pos != rb["per_position_cap"]
+              or per_cls != rb["per_asset_class_cap"] or leverage != rb["max_leverage"]
+              or objective != rb.get("ranking_objective", "sortino")
+              or conviction != rc.get("min_conviction", 0.55) or bool(require_agree) != bool(rc.get("require_agreement", False))
+              or set(classes) != {"equities", "rates"} or pinned or set(excluded) != set(base_excl))
+    if st.sidebar.button("Reset to defaults"):
+        st.rerun()
+    return _CFG.with_overrides(patch), bool(active)
+
+
+def _render_strategy_lab(signal_names: list[str]) -> None:
+    """Rules-builder + in-app backtest (reuses the Phase-2 engine via strategy.evaluate)."""
+    st.subheader("🧪 Strategy Lab — build & backtest a custom rule")
+    st.caption("⚠️ **Research only.** A user-defined, **in-sample** rule — *not* walk-forward-validated; "
+               "hand-tuned thresholds can curve-fit. Signals are causal and returns are next-day, "
+               "but this is an exploration tool, not advice.")
+
+    inputs = available_inputs(signal_names=signal_names)
+    input_names = sorted(inputs)
+    etf_universe = _CFG.yahoo_symbols("backtest_equity", "backtest_rates")
+
+    preset_map = presets()
+    choice = st.selectbox("Start from", ["Blank"] + list(preset_map))
+    seed = preset_map[choice] if choice in preset_map else None
+
+    name = st.text_input("Strategy name", value=(seed.name if seed else "My strategy"))
+    universe = st.multiselect("Universe (ETFs)", etf_universe,
+                              default=(seed.universe if seed else ["SPY", "QQQ"]))
+    seed_rules = ([r.to_dict() for r in seed.rules] if seed
+                  else [{"input": input_names[0], "op": ">", "threshold": 0.0, "weight": 1.0}])
+    rules_df = st.data_editor(
+        pd.DataFrame(seed_rules), num_rows="dynamic", width="stretch", key=f"rules_{choice}",
+        column_config={
+            "input": st.column_config.SelectboxColumn("input", options=input_names, width="medium"),
+            "op": st.column_config.SelectboxColumn("op", options=[">", ">=", "<", "<="]),
+            "threshold": st.column_config.NumberColumn("threshold", format="%.3f"),
+            "weight": st.column_config.NumberColumn("weight", format="%.2f"),
+        })
+    with st.expander("Input reference"):
+        st.dataframe(pd.DataFrame([{"input": k, **v} for k, v in inputs.items()]),
+                     hide_index=True, width="stretch")
+
+    c1, c2, c3 = st.columns(3)
+    direction = c1.radio("Direction", ["long_only", "long_short"], index=0)
+    sizing = c2.radio("Sizing", ["vol_target", "equal"], index=0)
+    rebalance = c3.radio("Rebalance", list(REBALANCES), index=list(REBALANCES).index("weekly"))
+    cc1, cc2 = st.columns(2)
+    per_pos = cc1.slider("Per-position cap", 0.05, 0.50, float(_CFG.risk_budget["per_position_cap"]), 0.01)
+    leverage = cc2.slider("Gross leverage", 0.25, 2.0, float(_CFG.risk_budget["max_leverage"]), 0.05)
+
+    rules = [Rule(input=str(r["input"]), op=str(r["op"]), threshold=float(r["threshold"]),
+                  weight=float(r.get("weight", 1.0)))
+             for r in rules_df.to_dict("records") if r.get("input")]
+    try:
+        spec = StrategySpec(name=name or "custom", universe=universe, rules=rules,
+                            direction=direction, sizing=sizing, rebalance=rebalance,
+                            caps={"per_position_cap": per_pos, "max_leverage": leverage}).validate()
+    except ValueError as exc:
+        st.info(f"Define a universe and at least one rule to run. ({exc})")
+        return
+
+    st.download_button("⬇️ Export strategy (JSON)", spec_to_json(spec),
+                       file_name=f"{(name or 'strategy').replace(' ', '_')}.json", mime="application/json")
+    up = st.file_uploader("Import strategy (JSON)", type=["json"])
+    if up is not None:
+        try:
+            imported = spec_from_json(up.getvalue().decode("utf-8"))
+            st.success(f"Imported '{imported.name}'. Adjust above, or rerun the page to load its rules.")
+        except Exception as exc:
+            st.error(f"Could not parse strategy JSON: {exc}")
+
+    if not st.button("▶️ Run backtest", type="primary"):
+        return
+    store = MarketStore()
+    try:
+        with st.spinner("Backtesting (causal, costs applied)…"):
+            out = eval_strategy(spec, store, _CFG)
+    finally:
+        store.close()
+    if "error" in out:
+        st.warning(out["error"])
+        return
+
+    s = out["summary"]
+    st.caption(f"{s['n_assets']} asset(s) · {s['first']} → {s['last']} · objective: {s['objective']}")
+    eq = out["equity"]
+    fig = go.Figure()
+    for col in eq.columns:
+        fig.add_trace(go.Scatter(x=eq.index, y=eq[col], mode="lines", name=col,
+                                 line=dict(width=2.5 if col == spec.name else 1.5)))
+    fig.update_layout(title="Custom-strategy equity (growth of $1) vs SPY", height=420,
+                      margin=dict(t=50, b=20, l=10, r=10), legend_title="strategy")
+    st.plotly_chart(fig, width="stretch")
+    mt = out["metrics"].copy()
+    for c in ("max_drawdown", "cagr", "hit_rate"):
+        if c in mt.columns:
+            mt[c] = (mt[c] * 100).round(1)
+    st.dataframe(mt, hide_index=True, width="stretch", column_config={
+        "sortino": st.column_config.NumberColumn("Sortino", format="%.2f"),
+        "sharpe": st.column_config.NumberColumn("Sharpe", format="%.2f"),
+        "max_drawdown": st.column_config.NumberColumn("max DD %", format="%.1f"),
+        "cagr": st.column_config.NumberColumn("CAGR %", format="%.1f"),
+        "hit_rate": st.column_config.NumberColumn("hit %", format="%.1f"),
+        "avg_gross": st.column_config.NumberColumn("avg gross", format="%.2f"),
+    })
+
+
 def _gauge(stress: StressResult) -> go.Figure:
     color = _BAND_COLORS.get(stress.label, "#607d8b")
     fig = go.Figure(go.Indicator(
@@ -162,8 +303,8 @@ def _history(stress: StressResult) -> go.Figure:
 def main() -> None:
     st.set_page_config(page_title="MacroAdvisor", layout="wide", page_icon="📊")
     st.title("📊 MacroAdvisor")
-    st.caption("Evidence-based market regime & stress read — Phase 1 (read-only).  "
-               "Not investment advice.")
+    st.caption("Evidence-based market regime & stress read, OOS forecasts, risk-budgeted trade "
+               "ideas, and a custom-strategy lab — Phase 3.  Research only; not investment advice.")
 
     data = _load()
     stress: StressResult | None = data["stress"]
@@ -177,8 +318,14 @@ def main() -> None:
         )
         st.stop()
 
-    overview, signals_tab, predictions, backtest_tab, ideas_tab, health = st.tabs(
-        ["Overview", "Signals", "Predictions", "Backtest", "Trade Ideas", "Data Health"])
+    oos = _load_oos()
+    signal_names = sorted(r["signal"] for r in data["signal_rows"])
+    idea_symbols = (sorted(oos["forecast"]["symbol"].unique())
+                    if "forecast" in oos else _CFG.yahoo_symbols("backtest_equity", "backtest_rates"))
+    cfg_eff, overrides_active = _sidebar_overrides(idea_symbols)
+
+    overview, signals_tab, predictions, backtest_tab, ideas_tab, strategy_tab, health = st.tabs(
+        ["Overview", "Signals", "Predictions", "Backtest", "Trade Ideas", "Strategy Lab", "Data Health"])
 
     # -- Overview --------------------------------------------------------
     with overview:
@@ -214,8 +361,6 @@ def main() -> None:
         )
         st.caption("Score in [-1, +1]: +risk-on / -risk-off, z-scored vs each signal's "
                    "own trailing window. Every signal is traceable to the listed inputs.")
-
-    oos = _load_oos()
 
     # -- Predictions -----------------------------------------------------
     with predictions:
@@ -299,12 +444,15 @@ def main() -> None:
         st.subheader("Trade ideas")
         st.caption("⚠️ Research & educational output only — **not investment advice**. Expressed via "
                    "liquid ETF proxies; ranked Sortino-style (expected return ÷ downside vol).")
+        if overrides_active:
+            st.info("⚙️ **Overrides active** — ideas below reflect your sidebar risk/ranking settings, "
+                    "not the default risk budget.")
         if "forecast" not in oos:
             st.info("No forecasts yet. Run `python scripts/train_and_backtest.py`.")
         else:
             store = MarketStore()
             try:
-                rec = run_recommend(store, oos["forecast"], _CFG)
+                rec = run_recommend(store, oos["forecast"], cfg_eff)
                 spots = {}
                 for hr in rec.horizons.values():
                     for s in hr.ensemble["symbol"]:
@@ -393,6 +541,10 @@ def main() -> None:
                         st.plotly_chart(fig, width="stretch")
                         st.caption("Illustration of how the directional view *could* be expressed with "
                                    "options — payoff shape at expiry only, no pricing/greeks. Not a recommendation.")
+
+    # -- Strategy Lab ----------------------------------------------------
+    with strategy_tab:
+        _render_strategy_lab(signal_names)
 
     # -- Data Health -----------------------------------------------------
     with health:

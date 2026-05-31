@@ -89,6 +89,23 @@ backtest_rates:
     - {series: "BAMLC0A0CM",   name: "ICE BofA US IG OAS"}
 
 # ---------------------------------------------------------------------------
+# News / sentiment (Phase 3) — free & high-credibility only.
+#   fred_sentiment -> FRED hard-data survey / financial-conditions series (keyless CSV).
+#   news           -> GDELT DOC 2.0 news tone/volume (keyless). SINGLE-SOURCE: no
+#                     cross-check mirror exists, so these carry staleness/min-history QA
+#                     only and are labeled single-source in the dashboard.
+# publication_lag_days: trading days a series is delayed vs its observation date; applied
+#   as a causal shift before the series enters any OOS feature panel (no look-ahead).
+# ---------------------------------------------------------------------------
+sentiment:
+  fred_sentiment:
+    - {series: "UMCSENT", name: "U.Mich Consumer Sentiment", orient: risk_on,  publication_lag_days: 14}
+    - {series: "NFCI",    name: "Chicago Fed Financial Conditions", orient: risk_off, publication_lag_days: 5}
+    - {series: "STLFSI4", name: "St. Louis Fed Financial Stress",   orient: risk_off, publication_lag_days: 5}
+  news:
+    - {label: "news_markets", query: "financial markets", name: "GDELT news tone — financial markets"}
+
+# ---------------------------------------------------------------------------
 # Live-signal universe (single names) — LIVE ONLY, never in historical OOS.
 # Constituents fetched dynamically (see ingest/constituents.py); seeds below
 # are a fallback if the dynamic fetch fails.

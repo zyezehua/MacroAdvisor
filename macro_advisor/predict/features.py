@@ -21,11 +21,41 @@ from macro_advisor.signals import transform as tf
 # default per-asset technical windows; overridden by cfg.predict["asset_feature_lookbacks"]
 _DEFAULT_LOOKBACKS = (21, 63, 126)
 
+# FRED sentiment series id -> the signal name that consumes it (for the publication-lag shift).
+_SENTIMENT_SERIES_TO_SIGNAL = {
+    "UMCSENT": "consumer_sentiment", "NFCI": "financial_conditions", "STLFSI4": "financial_stress",
+}
+_CAL_TO_BDAYS = 5.0 / 7.0   # calendar-day lag -> approximate business-day rows
+
+
+def _publication_lag_bdays(store: MarketStore) -> dict[str, int]:
+    """Signal name -> publication lag in business-day rows, from ``universe.yaml`` config.
+
+    Low-frequency macro/sentiment series are released *after* their observation date, so a
+    feature row dated on the observation date would otherwise leak the not-yet-published value.
+    Shifting the score forward by the lag closes that look-ahead. News tone is near-real-time
+    (1 day)."""
+    lags: dict[str, int] = {}
+    for item in store.cfg.fred_sentiment():
+        name = _SENTIMENT_SERIES_TO_SIGNAL.get(item.get("series", ""))
+        if name:
+            lags[name] = max(0, int(round(float(item.get("publication_lag_days", 0)) * _CAL_TO_BDAYS)))
+    lags.setdefault("news_tone", 1)
+    return lags
+
 
 def market_features(store: MarketStore) -> pd.DataFrame:
-    """Wide frame of market/macro signal scores, indexed by date (one column per signal)."""
+    """Wide frame of market/macro signal scores, indexed by date (one column per signal).
+
+    Sentiment/macro signals are shifted forward by their publication lag so the panel is
+    leakage-free for OOS use (no value appears before it was actually released)."""
     signals = compute_all(store)
-    cols = {name: sig.score for name, sig in signals.items()}
+    lags = _publication_lag_bdays(store)
+    cols = {}
+    for name, sig in signals.items():
+        s = sig.score
+        lag = lags.get(name, 0)
+        cols[name] = s.shift(lag) if lag else s
     return pd.DataFrame(cols).sort_index()
 
 

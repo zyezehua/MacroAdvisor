@@ -9,13 +9,14 @@ from __future__ import annotations
 import logging
 
 from macro_advisor.data import MarketStore
-from macro_advisor.signals import credit, cross_asset, rates, technical, volatility
+from macro_advisor.signals import credit, cross_asset, rates, sentiment, technical, volatility
 from macro_advisor.signals.base import SignalResult
 
 log = logging.getLogger(__name__)
 
-# Ordered so the output reads volatility -> credit -> rates -> momentum/technical -> cross-asset.
-_FAMILIES = (volatility, credit, rates, technical, cross_asset)
+# Ordered so the output reads volatility -> credit -> rates -> momentum/technical ->
+# cross-asset -> sentiment.
+_FAMILIES = (volatility, credit, rates, technical, cross_asset, sentiment)
 
 
 def compute_all(store: MarketStore) -> dict[str, SignalResult]:

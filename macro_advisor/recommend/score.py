@@ -66,9 +66,14 @@ def score_and_rank(frame: pd.DataFrame, store: MarketStore, cfg: Config) -> pd.D
     min_dvol = float(rc.get("min_downside_vol", 0.03))
     require_agree = bool(rc.get("require_agreement", False))
     exclude = set(rc.get("exclude_symbols", []))
+    pinned = set(rc.get("pinned_symbols", []))
+    include_classes = rc.get("include_asset_classes") or None     # e.g. ["equities"]; None = all
+    whitelist = set(rc.get("universe_whitelist") or [])           # empty = no restriction
     cmap = class_map(cfg)
 
     out = frame[~frame["symbol"].isin(exclude)].copy()
+    if whitelist:
+        out = out[out["symbol"].isin(whitelist | pinned)]
     out["direction"] = np.where(out["p_up"] >= out["p_down"], 1, -1)
     # conviction = directional split (how lopsided up vs down is), robust to the 3-class
     # models putting most probability mass on the "flat" class.
@@ -82,10 +87,17 @@ def score_and_rank(frame: pd.DataFrame, store: MarketStore, cfg: Config) -> pd.D
     # floor the downside vol so near-cash ETFs don't get inflated risk-adjusted scores
     out["downside_vol"] = out["symbol"].map(dvol).clip(lower=min_dvol)
     out["idea_score"] = out["direction"] * out["exp_ret"] / out["downside_vol"]
+    out["pinned"] = out["symbol"].isin(pinned)
+
+    # asset-class filter (pins always survive)
+    if include_classes:
+        out = out[out["asset_class"].isin(set(include_classes)) | out["pinned"]]
 
     qualified = out["conviction"] >= min_conv
     if require_agree and "agree" in out:
         qualified &= out["agree"]
+    qualified |= out["pinned"]                                  # pinned ideas always qualify
     out = out[qualified & out["downside_vol"].notna() & out["idea_score"].notna()]
-    out = out.sort_values("idea_score", ascending=False).reset_index(drop=True)
+    # pinned first, then by risk-adjusted score
+    out = out.sort_values(["pinned", "idea_score"], ascending=[False, False]).reset_index(drop=True)
     return out.head(int(rc.get("max_ideas", 10)))

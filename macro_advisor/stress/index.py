@@ -41,11 +41,14 @@ COMPONENT_OF: dict[str, str] = {
     "breadth": "breadth",
     # cross-asset
     "dollar": "cross_asset", "stock_bond_corr": "cross_asset",
+    # sentiment (surveys + news tone)
+    "consumer_sentiment": "sentiment", "financial_conditions": "sentiment",
+    "financial_stress": "sentiment", "news_tone": "sentiment",
 }
 
 _DEFAULT_WEIGHTS = {
-    "volatility": 0.25, "credit": 0.20, "rates": 0.20,
-    "momentum": 0.15, "breadth": 0.10, "cross_asset": 0.10,
+    "volatility": 0.25, "credit": 0.18, "rates": 0.18,
+    "momentum": 0.14, "breadth": 0.09, "cross_asset": 0.08, "sentiment": 0.08,
 }
 _DEFAULT_BANDS = {"calm": 30, "normal": 55, "elevated": 70, "stressed": 85}
 _LATENT_SCALE = 3.0     # spreads a [-1, 1] latent across the logistic's responsive range
@@ -92,7 +95,7 @@ def _component_frame(signals: dict[str, SignalResult]) -> pd.DataFrame:
         by_comp.setdefault(comp, []).append((-sig.score).rename(name))   # stress = -score
     cols = {}
     for comp, members in by_comp.items():
-        cols[comp] = pd.concat(members, axis=1).mean(axis=1, skipna=True)
+        cols[comp] = pd.concat(members, axis=1, sort=False).mean(axis=1, skipna=True)
     return pd.DataFrame(cols).sort_index()
 
 

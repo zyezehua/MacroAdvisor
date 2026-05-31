@@ -2,7 +2,7 @@
 
 An evidence-based, multi-asset market regime & trade advisory engine for US markets.
 
-> **Status:** Phase 2b (recommendation/ranking engine + Trade Ideas). See [Roadmap](#roadmap).
+> **Status:** Phase 3 (override UI · custom-strategy lab · news/sentiment signals). See [Roadmap](#roadmap).
 
 ## What it does
 
@@ -46,6 +46,7 @@ macro_advisor/
 ├── stress/          # composite stress index with per-component decomposition
 ├── predict/         # label construction + walk-forward OOS engine
 ├── recommend/       # structured payoff units + risk-budget ranking
+├── strategy/        # custom rules-builder + in-app backtest (Phase 3)
 ├── backtest/        # vectorized backtester with costs + walk-forward harness
 └── dashboard/       # Streamlit app (Plotly)
 ```
@@ -114,6 +115,38 @@ ETFs aren't over-rewarded) and gated by directional conviction.
 
 Trade ideas are research & educational output only — **not investment advice**.
 
+## Interactivity & sentiment (Phase 3)
+
+Phase 3 makes the engine interactive and adds the deferred sentiment signal family.
+
+- **Manual override UI** — a sidebar panel reshapes the Trade Ideas list live: notional,
+  per-position / per-asset-class caps, gross leverage, ranking objective, conviction gate,
+  model-agreement requirement, asset-class filter, and **pin / exclude** specific symbols. It
+  patches the config in-memory ([`Config.with_overrides`](macro_advisor/config.py)) and re-runs the
+  recommender — the caps are still enforced under any override.
+- **Strategy Lab** — a rules-builder: compose a strategy from the signal library + stress level +
+  per-asset technicals (`input op threshold`, weighted), pick the ETF universe / direction / sizing /
+  rebalance cadence, and **backtest it in-app** against SPY, reusing the Phase-2 vectorized engine
+  ([strategy/](macro_advisor/strategy/)). Export/import strategies as JSON. The rules are causal and
+  returns are next-day, but thresholds are user-chosen — it is an **in-sample** tool, *not*
+  walk-forward-validated (clearly labeled).
+- **News/sentiment signals** ([signals/sentiment.py](macro_advisor/signals/sentiment.py)) — a new
+  `sentiment` signal family and stress component, from **free, high-credibility** sources:
+  - **FRED hard-sentiment** (keyless): U.Mich consumer sentiment (`UMCSENT`), Chicago Fed financial
+    conditions (`NFCI`), St. Louis Fed financial stress (`STLFSI4`).
+  - **GDELT news tone** ([ingest/gdelt.py](macro_advisor/ingest/gdelt.py), keyless): average news
+    tone + volume for a query. **Single-source** — no cross-check mirror exists, so it carries
+    staleness/min-history QA only and is labeled single-source and weighted modestly.
+  - **No look-ahead:** low-frequency series are forward-filled only (never back-filled), and for the
+    OOS feature panel each is shifted by its **publication lag** (`publication_lag_days` in
+    `universe.yaml`) so a row never sees a survey before it was released. The adapter is left
+    extensible for a keyed news API later. No social media (deferred for credibility).
+
+```bash
+python scripts/pull_data.py --full           # full pull now includes news/sentiment
+python scripts/pull_data.py --full --no-sentiment   # opt out of the sentiment pull
+```
+
 ## Deployment (Streamlit Cloud)
 
 The cache under `data/` is gitignored, so the deployed app gets its data from a **public
@@ -153,8 +186,8 @@ No `FRED_API_KEY` is needed — the FRED adapter uses the keyless CSV endpoint.
 - **Phase 0** — scaffolding, config, data adapters (Yahoo+FRED), cross-check, storage ✓
 - **Phase 1** — signal library + stress index + read-only dashboard ✓
 - **Phase 2a** — walk-forward OOS prediction + backtester ✓
-- **Phase 2b** — recommendation/ranking engine + trade-idea dashboard ← *current*
-- **Phase 3** — manual override UI, custom strategies, then NLP/news/social sentiment
+- **Phase 2b** — recommendation/ranking engine + trade-idea dashboard ✓
+- **Phase 3** — manual override UI + custom-strategy lab + news/sentiment signals ← *current*
 
 ## Disclaimer
 
