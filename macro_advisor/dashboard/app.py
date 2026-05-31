@@ -290,7 +290,7 @@ def _history(stress: StressResult) -> go.Figure:
     h = stress.history.tail(504)  # ~2y
     fig = go.Figure(go.Scatter(x=h.index, y=h.values, mode="lines",
                                line=dict(color=_PAL["cyan"], width=2),
-                               fill="tozeroy", fillcolor="rgba(34,211,238,0.06)"))
+                               fill="tozeroy", fillcolor="rgba(52,219,240,0.06)"))
     for edge, col in [(30, _BAND_COLORS["calm"]), (55, _BAND_COLORS["normal"]),
                       (70, _BAND_COLORS["stressed"]), (85, _BAND_COLORS["crisis"])]:
         fig.add_hline(y=edge, line_dash="dot", line_color=col, opacity=0.4)
@@ -531,7 +531,7 @@ def main() -> None:
                         st.markdown(f"**Illustrative payoff — {top['symbol']} ({pay.label})**")
                         fig = go.Figure(go.Scatter(x=pay.x, y=pay.y, mode="lines",
                                                    line=dict(color=_PAL["cyan"], width=2),
-                                                   fill="tozeroy", fillcolor="rgba(34,211,238,0.05)"))
+                                                   fill="tozeroy", fillcolor="rgba(52,219,240,0.05)"))
                         fig.add_hline(y=0, line_dash="dot", line_color=_PAL["muted"])
                         for name, xv in pay.markers.items():
                             fig.add_vline(x=xv, line_dash="dot", line_color=_PAL["border"],

@@ -22,22 +22,22 @@ import streamlit as st
 
 # --------------------------------------------------------------------------- palette
 PALETTE = {
-    "bg": "#0b1020",            # deep navy (not pure black)
-    "bg2": "#0d1428",           # gradient end
-    "panel": "#131a2e",         # cards / sidebar / tab panels
-    "panel2": "#1a2238",        # raised panel
-    "border": "#233049",        # hairline borders
-    "grid": "#1e2940",          # chart gridlines
-    "glow": "rgba(34,211,238,0.22)",
-    "cyan": "#22d3ee",          # primary accent
-    "blue": "#3b82f6",
-    "violet": "#818cf8",
+    "bg": "#172139",            # lighter slate-navy (airier than the old near-black)
+    "bg2": "#1e2a48",           # gradient end
+    "panel": "#22304f",         # cards / sidebar / tab panels
+    "panel2": "#2b3b61",        # raised panel
+    "border": "#3a4d77",        # hairline borders (brighter, more visible)
+    "grid": "#33446a",          # chart gridlines
+    "glow": "rgba(52,219,240,0.28)",
+    "cyan": "#34dbf0",          # primary accent
+    "blue": "#5b9bff",
+    "violet": "#9aa6ff",
     "teal": "#2dd4bf",
-    "text": "#e6edf6",          # near-white
-    "muted": "#8aa0b6",
-    "up": "#22c55e",            # risk-on / positive
-    "down": "#f43f5e",          # risk-off / negative
-    "warn": "#f59e0b",
+    "text": "#eef4fc",          # near-white
+    "muted": "#a3b6d0",
+    "up": "#34d399",            # risk-on / positive
+    "down": "#fb6f8a",          # risk-off / negative
+    "warn": "#fbbf24",
     "orange": "#fb923c",
 }
 
@@ -122,14 +122,28 @@ h2::before, h3::before {{
 [data-testid="stMetricValue"] {{ font-family: {_FONT_MONO}; color: {p['cyan']}; font-weight: 600; }}
 [data-testid="stMetricLabel"] {{ color: {p['muted']}; text-transform: uppercase; letter-spacing: .6px; font-size: .72rem; }}
 
-/* tabs — underline + glow on the active tab */
-[data-testid="stTabs"] [data-baseweb="tab-list"] {{ gap: 4px; border-bottom: 1px solid {p['border']}; }}
-[data-testid="stTabs"] button[role="tab"] {{ color: {p['muted']}; font-family: {_FONT_HEAD}; font-weight: 500; }}
-[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {{ color: {p['cyan']}; }}
-[data-testid="stTabs"] button[role="tab"][aria-selected="true"]::after {{
-  content: ""; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px;
-  background: linear-gradient(90deg, {p['cyan']}, {p['blue']}); box-shadow: 0 0 8px {p['glow']}; border-radius: 2px;
+/* tabs — spaced, rounded "pill" buttons (clearly clickable, not just text) */
+[data-testid="stTabs"] [data-baseweb="tab-list"] {{
+  gap: 10px; border-bottom: none; flex-wrap: wrap; padding: 4px 0 8px;
 }}
+/* hide the default baseweb underline highlight/border */
+[data-testid="stTabs"] [data-baseweb="tab-highlight"],
+[data-testid="stTabs"] [data-baseweb="tab-border"] {{ background: transparent !important; display: none !important; }}
+[data-testid="stTabs"] button[role="tab"] {{
+  background: {p['panel']}; border: 1px solid {p['border']}; border-radius: 12px;
+  padding: 8px 18px; color: {p['muted']}; font-family: {_FONT_HEAD}; font-weight: 500;
+  letter-spacing: .3px; transition: all .15s ease;
+}}
+[data-testid="stTabs"] button[role="tab"]:hover {{
+  border-color: rgba(52,219,240,0.6); color: {p['text']};
+  box-shadow: 0 0 0 1px var(--ma-glow);
+}}
+[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {{
+  color: #04121b; border-color: transparent;
+  background: linear-gradient(92deg, {p['cyan']}, {p['blue']});
+  box-shadow: 0 4px 16px {p['glow']};
+}}
+[data-testid="stTabs"] button[role="tab"][aria-selected="true"] p {{ font-weight: 600; }}
 
 /* sidebar — translucent panel with a lit right edge */
 [data-testid="stSidebar"] {{
@@ -146,6 +160,44 @@ button[kind="primary"], [data-testid="stBaseButton-primary"] {{
 button[kind="primary"]:hover, [data-testid="stBaseButton-primary"]:hover {{
   filter: brightness(1.06); box-shadow: 0 6px 24px rgba(34,211,238,0.4);
 }}
+
+/* secondary / download buttons — rounded cards */
+button[kind="secondary"], [data-testid="stBaseButton-secondary"],
+[data-testid="stDownloadButton"] button {{
+  background: {p['panel']}; border: 1px solid {p['border']}; border-radius: 11px;
+  color: {p['text']}; font-weight: 500; transition: all .15s ease;
+}}
+button[kind="secondary"]:hover, [data-testid="stBaseButton-secondary"]:hover,
+[data-testid="stDownloadButton"] button:hover {{
+  border-color: rgba(52,219,240,0.6); color: {p['cyan']}; box-shadow: 0 0 0 1px var(--ma-glow);
+}}
+
+/* inputs (select / multiselect / number / text / file uploader) — rounded cards */
+div[data-baseweb="select"] > div, div[data-baseweb="input"], div[data-baseweb="base-input"],
+[data-testid="stNumberInputContainer"], [data-testid="stFileUploaderDropzone"] {{
+  background: {p['panel']} !important; border: 1px solid {p['border']} !important;
+  border-radius: 11px !important;
+}}
+div[data-baseweb="select"] > div:focus-within, div[data-baseweb="input"]:focus-within,
+[data-testid="stNumberInputContainer"]:focus-within {{
+  border-color: {p['cyan']} !important; box-shadow: 0 0 0 1px var(--ma-glow) !important;
+}}
+/* multiselect chips */
+[data-baseweb="tag"] {{ border-radius: 8px !important; }}
+
+/* radio options as rounded "pill" cards */
+[data-testid="stRadio"] [role="radiogroup"] {{ gap: 8px; flex-wrap: wrap; }}
+[data-testid="stRadio"] [role="radiogroup"] > label {{
+  background: {p['panel']}; border: 1px solid {p['border']}; border-radius: 11px;
+  padding: 7px 14px; margin: 0; transition: all .15s ease;
+}}
+[data-testid="stRadio"] [role="radiogroup"] > label:hover {{ border-color: rgba(52,219,240,0.6); }}
+[data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) {{
+  border-color: {p['cyan']}; background: rgba(52,219,240,0.10); box-shadow: 0 0 0 1px var(--ma-glow);
+}}
+
+/* sliders + general focus ring tint */
+[data-testid="stSlider"] [role="slider"] {{ box-shadow: 0 0 0 4px rgba(52,219,240,0.18); }}
 
 /* dataframes — tinted header + hairline frame */
 [data-testid="stDataFrame"] {{ border: 1px solid {p['border']}; border-radius: 12px; overflow: hidden; }}
