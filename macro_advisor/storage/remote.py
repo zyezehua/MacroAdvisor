@@ -40,10 +40,14 @@ def _data_root(cfg: Config) -> str:
 
 
 def cache_present(cfg: Config | None = None) -> bool:
-    """True if a local cache already exists (DB file or any cached price parquet)."""
+    """True if a usable local cache exists, i.e. there are cached price parquet files.
+
+    Deliberately keyed on parquet — not the SQLite file — because constructing a
+    ``MarketStore``/``ProvenanceDB`` creates an *empty* ``.sqlite`` as a side effect. On a
+    persistent host (e.g. Streamlit Cloud across redeploys) that empty DB would otherwise be
+    mistaken for a populated cache and suppress the HF download.
+    """
     cfg = cfg or load_config()
-    if cfg.path("db_path").exists():
-        return True
     pdir = cfg.path("parquet_dir")
     return pdir.exists() and any(pdir.glob("*.parquet"))
 
