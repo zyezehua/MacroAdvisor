@@ -76,6 +76,19 @@ predict:
     long_only: false            # allow shorts on a "down" signal
 
 # ---------------------------------------------------------------------------
+# Recommendation / ranking (Phase 2b)
+# Turns OOS forecasts into Sortino-ranked, risk-budgeted trade ideas (ETF proxies).
+# ---------------------------------------------------------------------------
+recommend:
+  max_ideas: 10               # cap on ideas shown / sized per horizon
+  require_agreement: false    # if true, only ideas where both models agree on direction qualify
+  min_conviction: 0.55        # min directional split max(p_up,p_down)/(p_up+p_down) to qualify
+  downside_vol_window: 63     # trailing window (days) for the Sortino-style downside vol
+  min_downside_vol: 0.03      # floor on downside vol so near-cash ETFs don't get inflated scores
+  exclude_symbols: [BIL]      # cash/MM proxies are not tradeable directional ideas
+  payoff_otm_pct: 0.03        # strike offset for the illustrative option payoff (3% OTM)
+
+# ---------------------------------------------------------------------------
 # Refresh cadence
 # ---------------------------------------------------------------------------
 refresh:

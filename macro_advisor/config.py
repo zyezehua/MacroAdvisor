@@ -81,6 +81,10 @@ class Config:
     def predict(self) -> dict[str, Any]:
         return self.settings.get("predict", {})
 
+    @property
+    def recommend(self) -> dict[str, Any]:
+        return self.settings.get("recommend", {})
+
     def path(self, key: str) -> Path:
         """Resolve a storage path key (e.g. 'parquet_dir', 'db_path') to an absolute Path."""
         return REPO_ROOT / self.storage[key]

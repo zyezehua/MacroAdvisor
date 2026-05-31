@@ -2,7 +2,7 @@
 
 An evidence-based, multi-asset market regime & trade advisory engine for US markets.
 
-> **Status:** Phase 2a (walk-forward OOS prediction + backtester). See [Roadmap](#roadmap).
+> **Status:** Phase 2b (recommendation/ranking engine + Trade Ideas). See [Roadmap](#roadmap).
 
 ## What it does
 
@@ -95,6 +95,25 @@ python scripts/train_and_backtest.py --fast     # coarse steps for a quick local
 
 Forecasts are research output, not investment advice.
 
+## Trade ideas (Phase 2b)
+
+Ranks the OOS forecasts into **risk-budgeted trade ideas** (liquid ETF proxies). An **ensemble**
+(linear + GBM, agreement-aware) drives the headline list, with per-model detail; ideas are ranked
+**Sortino-style** (`direction · expected return ÷ downside vol`, with a vol floor so near-cash
+ETFs aren't over-rewarded) and gated by directional conviction.
+
+- **Engine:** [recommend/](macro_advisor/recommend/) — `score` (ensemble + risk-adjusted ranking),
+  `portfolio` (risk-budget construction), `payoff` (illustration), `engine` (orchestrator).
+- **Portfolio:** built to the locked risk budget — per-position ≤ 15%, per-asset-class ≤ 60%,
+  gross leverage ≤ 1.0, sized in $ against the $250k notional.
+- **Structured payoffs:** the dashboard shows an *illustrative* options payoff-at-expiry for the
+  top idea (no pricing/greeks) — purely to show how a view could be expressed.
+- **Dashboard:** the **Trade Ideas** tab (horizon selector → ranked ideas, portfolio + allocation
+  chart + caps usage, per-model detail, payoff illustration). Computed live in the app from the
+  forecast artifacts — no extra deps or workflow changes.
+
+Trade ideas are research & educational output only — **not investment advice**.
+
 ## Deployment (Streamlit Cloud)
 
 The cache under `data/` is gitignored, so the deployed app gets its data from a **public
@@ -133,8 +152,8 @@ No `FRED_API_KEY` is needed — the FRED adapter uses the keyless CSV endpoint.
 
 - **Phase 0** — scaffolding, config, data adapters (Yahoo+FRED), cross-check, storage ✓
 - **Phase 1** — signal library + stress index + read-only dashboard ✓
-- **Phase 2a** — walk-forward OOS prediction + backtester ← *current*
-- **Phase 2b** — recommendation/ranking engine + trade-idea dashboard
+- **Phase 2a** — walk-forward OOS prediction + backtester ✓
+- **Phase 2b** — recommendation/ranking engine + trade-idea dashboard ← *current*
 - **Phase 3** — manual override UI, custom strategies, then NLP/news/social sentiment
 
 ## Disclaimer

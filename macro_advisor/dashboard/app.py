@@ -27,9 +27,13 @@ import streamlit as st
 
 from macro_advisor.config import load_config
 from macro_advisor.data import MarketStore
+from macro_advisor.recommend import payoff as payoff_mod
+from macro_advisor.recommend import recommend as run_recommend
 from macro_advisor.signals import compute_all
 from macro_advisor.storage import remote
 from macro_advisor.stress import StressResult, compute_stress
+
+_HNAME = {"short": "Short (1–5d)", "med_long": "Med-long (1–3m)"}
 
 _CFG = load_config()
 _TTL = int((_CFG.remote or {}).get("app_cache_ttl_min", 30)) * 60
@@ -173,8 +177,8 @@ def main() -> None:
         )
         st.stop()
 
-    overview, signals_tab, predictions, backtest_tab, health = st.tabs(
-        ["Overview", "Signals", "Predictions", "Backtest", "Data Health"])
+    overview, signals_tab, predictions, backtest_tab, ideas_tab, health = st.tabs(
+        ["Overview", "Signals", "Predictions", "Backtest", "Trade Ideas", "Data Health"])
 
     # -- Overview --------------------------------------------------------
     with overview:
@@ -225,7 +229,6 @@ def main() -> None:
             if not meta.empty:
                 st.caption(f"Walk-forward OOS forecast · as of {meta.iloc[0].get('asof','?')} · "
                            "+1 = up / −1 = down / 0 = flat over the horizon")
-            _HNAME = {"short": "Short (1–5d)", "med_long": "Med-long (1–3m)"}
             for model_label, model_key in (("Interpretable (linear)", "linear"), ("ML (gradient-boosted trees)", "gbm")):
                 st.subheader(model_label)
                 mfc = fc[fc["model"] == model_key]
@@ -290,6 +293,106 @@ def main() -> None:
                 st.plotly_chart(fig, width="stretch")
             st.caption("Sortino-primary (the locked ranking objective). Costs + slippage applied; "
                        "vol-targeted within the risk budget; only OOS-predicted dates trade.")
+
+    # -- Trade Ideas -----------------------------------------------------
+    with ideas_tab:
+        st.subheader("Trade ideas")
+        st.caption("⚠️ Research & educational output only — **not investment advice**. Expressed via "
+                   "liquid ETF proxies; ranked Sortino-style (expected return ÷ downside vol).")
+        if "forecast" not in oos:
+            st.info("No forecasts yet. Run `python scripts/train_and_backtest.py`.")
+        else:
+            store = MarketStore()
+            try:
+                rec = run_recommend(store, oos["forecast"], _CFG)
+                spots = {}
+                for hr in rec.horizons.values():
+                    for s in hr.ensemble["symbol"]:
+                        if s not in spots:
+                            p = store.try_price(s)
+                            if p is not None:
+                                spots[s] = float(p.iloc[-1])
+            finally:
+                store.close()
+
+            if rec.is_empty:
+                st.info("No qualifying ideas at the current conviction threshold.")
+            else:
+                hsel = st.radio("Horizon", list(rec.horizons), horizontal=True,
+                                format_func=lambda h: _HNAME.get(h, h))
+                hr = rec.horizons[hsel]
+                st.caption(f"As of {rec.asof}")
+
+                ens = hr.ensemble
+                if ens.empty:
+                    st.info("No qualifying ideas for this horizon.")
+                else:
+                    show = ens[["symbol", "direction", "conviction", "exp_ret", "idea_score",
+                                "asset_class", "agree"]].copy()
+                    show.insert(0, "rank", range(1, len(show) + 1))
+                    show["direction"] = show["direction"].map({1: "🟢 long", -1: "🔴 short"})
+                    show["exp_ret"] = (show["exp_ret"] * 100).round(2)
+                    show["agree"] = show["agree"].map({True: "✓ both", False: "—"})
+                    st.markdown("**Ranked ideas (ensemble of linear + GBM)**")
+                    st.dataframe(show, hide_index=True, width="stretch", column_config={
+                        "conviction": st.column_config.NumberColumn("conviction", format="%.2f"),
+                        "exp_ret": st.column_config.NumberColumn("exp. ret %", format="%.2f"),
+                        "idea_score": st.column_config.NumberColumn("risk-adj score", format="%.2f"),
+                    })
+
+                    st.markdown(f"**Risk-budgeted portfolio** · ${hr.summary['notional']:,.0f} notional")
+                    alloc = hr.allocation
+                    if alloc.empty:
+                        st.caption("No positions after applying the risk-budget caps.")
+                    else:
+                        disp = alloc.copy()
+                        disp["weight"] = (disp["weight"] * 100).round(1)
+                        st.dataframe(disp, hide_index=True, width="stretch", column_config={
+                            "weight": st.column_config.NumberColumn("weight %", format="%.1f"),
+                            "dollars": st.column_config.NumberColumn("$ amount", format="$%.0f"),
+                        })
+                        bar = go.Figure(go.Bar(
+                            x=alloc["symbol"], y=(alloc["weight"] * 100),
+                            marker_color=["#2e7d32" if d == "long" else "#c62828" for d in alloc["direction"]]))
+                        bar.update_layout(title="Allocation (%, signed)", height=300,
+                                          margin=dict(t=40, b=20, l=10, r=10))
+                        st.plotly_chart(bar, width="stretch")
+                        s = hr.summary
+                        cls = " · ".join(f"{k} {v*100:.0f}%" for k, v in s["by_class"].items())
+                        st.caption(f"Gross {s['gross']*100:.0f}% (cap 100%) · net {s['net']*100:+.0f}% · "
+                                   f"by class: {cls} (cap 60%) · per-position cap 15% · {s['n_positions']} positions")
+
+                    with st.expander("Per-model ideas (linear vs GBM)"):
+                        mcols = st.columns(len(rec.models))
+                        for col, m in zip(mcols, rec.models):
+                            pm = hr.per_model.get(m, pd.DataFrame())
+                            col.markdown(f"**{m}**")
+                            if pm.empty:
+                                col.caption("— none —")
+                            else:
+                                t = pm[["symbol", "direction", "conviction", "idea_score"]].head(8).copy()
+                                t["direction"] = t["direction"].map({1: "long", -1: "short"})
+                                col.dataframe(t, hide_index=True, width="stretch")
+
+                    # structured-payoff illustration for the top idea
+                    top = ens.iloc[0]
+                    spot = spots.get(top["symbol"])
+                    if spot:
+                        otm = float(_CFG.recommend.get("payoff_otm_pct", 0.03))
+                        pay = payoff_mod.illustrate(spot, int(top["direction"]), otm_pct=otm)
+                        st.markdown(f"**Illustrative payoff — {top['symbol']} ({pay.label})**")
+                        fig = go.Figure(go.Scatter(x=pay.x, y=pay.y, mode="lines",
+                                                   line=dict(color="#4fc3f7", width=2)))
+                        fig.add_hline(y=0, line_dash="dot", line_color="#888")
+                        for name, xv in pay.markers.items():
+                            fig.add_vline(x=xv, line_dash="dot", line_color="#aaa",
+                                          annotation_text=name, annotation_position="top")
+                        fig.update_layout(height=320, margin=dict(t=30, b=20, l=10, r=10),
+                                          xaxis_title=f"{top['symbol']} price at expiry",
+                                          yaxis_title="P&L (per unit, illustrative)")
+                        st.plotly_chart(fig, width="stretch")
+                        st.caption("Illustration of how the directional view *could* be expressed with "
+                                   "options — payoff shape at expiry only, no pricing/greeks. Not a recommendation.")
 
     # -- Data Health -----------------------------------------------------
     with health:
