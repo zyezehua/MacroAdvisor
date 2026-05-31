@@ -33,6 +33,9 @@ def test_market_features_shifts_sentiment_forward(store_factory):
     raw = compute_all(store)["news_tone"].score
     mf = features.market_features(store)
     assert "news_tone" in mf.columns
+    # downstream (date, symbol) panels reorder on a 'date'-named index; sentiment signals
+    # whose score index is unnamed must not drop the name (regression: train _stress_panel)
+    assert mf.index.name == "date"
     # the panel column is the raw causal score shifted forward by one business day
     shifted = raw.shift(1)
     aligned = pd.concat([mf["news_tone"], shifted], axis=1).dropna()

@@ -56,7 +56,11 @@ def market_features(store: MarketStore) -> pd.DataFrame:
         s = sig.score
         lag = lags.get(name, 0)
         cols[name] = s.shift(lag) if lag else s
-    return pd.DataFrame(cols).sort_index()
+    df = pd.DataFrame(cols).sort_index()
+    # canonical index name for the downstream (date, symbol) panels — mixing signals whose
+    # score indices have different (or no) names would otherwise drop it to None.
+    df.index.name = "date"
+    return df
 
 
 def asset_features(price: pd.Series, lookbacks=_DEFAULT_LOOKBACKS) -> pd.DataFrame:

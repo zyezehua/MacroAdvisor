@@ -66,7 +66,7 @@ def _daily_ffill(s: pd.Series) -> pd.Series:
     cap = last + pd.tseries.offsets.BDay(_MAX_CARRY_BDAYS)
     today = pd.Timestamp.now().normalize()
     end = last if today <= last else min(today, cap)
-    bidx = pd.date_range(s.index.min(), end, freq="B")
+    bidx = pd.date_range(s.index.min(), end, freq="B", name=s.index.name or "date")
     return s.reindex(bidx, method="ffill").rename(s.name)
 
 
