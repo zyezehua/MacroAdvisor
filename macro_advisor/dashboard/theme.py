@@ -1,15 +1,14 @@
-"""Dashboard visual theme — "deep-space navy + neon glow" (tech/HUD look).
+"""Dashboard visual theme — "white + sky-blue" (clean, light, tech).
 
 Centralizes every visual asset so ``app.py`` stays about logic, not styling:
   * ``PALETTE``        — the color constants.
-  * ``BAND_COLORS``    — stress-band colors (calm→crisis), neon-tuned for dark.
-  * ``GAUGE_STEPS``    — translucent dark band fills for the stress gauge.
-  * ``inject_css``     — one-shot CSS (fonts, gradient background, glowing cards,
-                          tab highlight, sidebar/button polish).
+  * ``BAND_COLORS``    — stress-band colors (calm→crisis).
+  * ``GAUGE_STEPS``    — translucent band fills for the stress gauge.
+  * ``inject_css``     — one-shot CSS (fonts, sky-tinted background, rounded cards,
+                          pill-button tabs, sidebar/button/input polish).
   * ``apply_default``  — registers a Plotly template and makes it the default so
-                          every chart matches (transparent bg, neon colorway, grid).
-  * ``style_fig``      — per-figure touch-up (transparent bg + font), for the few
-                          figures that want it explicitly.
+                          every chart matches (transparent bg, sky colorway, light grid).
+  * ``style_fig``      — per-figure touch-up (transparent bg + font).
 
 Pure styling: no data/logic here. Selectors are ``data-testid``/role based and
 additive, so a selector miss simply doesn't apply (never breaks the app).
@@ -22,41 +21,41 @@ import streamlit as st
 
 # --------------------------------------------------------------------------- palette
 PALETTE = {
-    "bg": "#172139",            # lighter slate-navy (airier than the old near-black)
-    "bg2": "#1e2a48",           # gradient end
-    "panel": "#22304f",         # cards / sidebar / tab panels
-    "panel2": "#2b3b61",        # raised panel
-    "border": "#3a4d77",        # hairline borders (brighter, more visible)
-    "grid": "#33446a",          # chart gridlines
-    "glow": "rgba(52,219,240,0.28)",
-    "cyan": "#34dbf0",          # primary accent
-    "blue": "#5b9bff",
-    "violet": "#9aa6ff",
-    "teal": "#2dd4bf",
-    "text": "#eef4fc",          # near-white
-    "muted": "#a3b6d0",
-    "up": "#34d399",            # risk-on / positive
-    "down": "#fb6f8a",          # risk-off / negative
-    "warn": "#fbbf24",
-    "orange": "#fb923c",
+    "bg": "#ffffff",            # white
+    "bg2": "#e9f3ff",           # gradient end (light sky wash)
+    "panel": "#ffffff",         # cards
+    "panel2": "#f0f6ff",        # raised / alt panel, dataframe header
+    "border": "#cfe0f5",        # hairline borders
+    "grid": "#e4eefb",          # chart gridlines
+    "glow": "rgba(14,165,233,0.22)",
+    "cyan": "#0ea5e9",          # primary accent — sky blue
+    "blue": "#2563eb",
+    "violet": "#6366f1",
+    "teal": "#0891b2",
+    "text": "#0f2742",          # dark slate (readable on white)
+    "muted": "#5b708f",
+    "up": "#16a34a",            # risk-on / positive
+    "down": "#e11d48",          # risk-off / negative
+    "warn": "#d97706",
+    "orange": "#ea580c",
 }
 
-# stress bands (calm → crisis), neon-tuned to read well on the navy background
+# stress bands (calm → crisis)
 BAND_COLORS = {
-    "calm": "#22c55e",
-    "normal": "#a3e635",
-    "elevated": "#f59e0b",
-    "stressed": "#fb923c",
-    "crisis": "#f43f5e",
+    "calm": "#16a34a",
+    "normal": "#65a30d",
+    "elevated": "#d97706",
+    "stressed": "#ea580c",
+    "crisis": "#e11d48",
 }
 
-# gauge zone fills — translucent dark tints (the old pastel fills clashed on dark)
+# gauge zone fills — soft translucent tints that read cleanly on white
 GAUGE_STEPS = [
-    {"range": [0, 30], "color": "rgba(34,197,94,0.14)"},
-    {"range": [30, 55], "color": "rgba(163,230,53,0.12)"},
-    {"range": [55, 70], "color": "rgba(245,158,11,0.13)"},
-    {"range": [70, 85], "color": "rgba(251,146,60,0.15)"},
-    {"range": [85, 100], "color": "rgba(244,63,94,0.16)"},
+    {"range": [0, 30], "color": "rgba(22,163,74,0.12)"},
+    {"range": [30, 55], "color": "rgba(101,163,13,0.12)"},
+    {"range": [55, 70], "color": "rgba(217,119,6,0.13)"},
+    {"range": [70, 85], "color": "rgba(234,88,12,0.14)"},
+    {"range": [85, 100], "color": "rgba(225,29,72,0.14)"},
 ]
 
 # series color cycle for multi-line charts (equity curves, etc.)
@@ -66,6 +65,7 @@ COLORWAY = [PALETTE["cyan"], PALETTE["blue"], PALETTE["violet"], PALETTE["teal"]
 _FONT_BODY = "Inter, 'Segoe UI', system-ui, sans-serif"
 _FONT_HEAD = "'Space Grotesk', Inter, sans-serif"
 _FONT_MONO = "'JetBrains Mono', 'SFMono-Regular', ui-monospace, monospace"
+_SKY = "14,165,233"   # rgb of the sky-blue accent, for rgba() glows
 
 
 # --------------------------------------------------------------------------- CSS
@@ -80,30 +80,30 @@ def _css() -> str:
   --ma-panel: {p['panel']}; --ma-glow: {p['glow']}; --ma-muted: {p['muted']};
 }}
 
-/* app background: deep-navy radial wash + faint grid */
+/* app background: white with a soft sky wash + very faint grid */
 [data-testid="stAppViewContainer"] {{
   background:
-    radial-gradient(1200px 600px at 12% -10%, rgba(34,211,238,0.06), transparent 60%),
-    radial-gradient(1000px 700px at 100% 0%, rgba(59,130,246,0.07), transparent 55%),
+    radial-gradient(1200px 600px at 12% -10%, rgba({_SKY},0.10), transparent 60%),
+    radial-gradient(1000px 700px at 100% 0%, rgba(37,99,235,0.07), transparent 55%),
     linear-gradient(180deg, {p['bg']} 0%, {p['bg2']} 100%);
   background-attachment: fixed;
 }}
 [data-testid="stAppViewContainer"]::before {{
-  content: ""; position: fixed; inset: 0; pointer-events: none; opacity: .35;
+  content: ""; position: fixed; inset: 0; pointer-events: none; opacity: .5;
   background-image:
-    linear-gradient(to right, rgba(35,48,73,0.25) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(35,48,73,0.25) 1px, transparent 1px);
+    linear-gradient(to right, rgba({_SKY},0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba({_SKY},0.05) 1px, transparent 1px);
   background-size: 44px 44px;
 }}
 [data-testid="stHeader"] {{ background: transparent; }}
 
 html, body, [class*="st-"], .stMarkdown, p, span, label, div {{ font-family: {_FONT_BODY}; }}
 
-/* headings — geometric + cyan accent bar */
+/* headings — geometric + sky accent bar */
 h1, h2, h3, [data-testid="stHeading"] {{ font-family: {_FONT_HEAD}; letter-spacing: .2px; color: {p['text']}; }}
 h1 {{
   font-weight: 700;
-  background: linear-gradient(92deg, {p['text']} 0%, {p['cyan']} 70%, {p['blue']} 100%);
+  background: linear-gradient(92deg, {p['text']} 0%, {p['cyan']} 65%, {p['blue']} 100%);
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }}
 h2, h3 {{ position: relative; padding-left: .6rem; }}
@@ -112,53 +112,50 @@ h2::before, h3::before {{
   background: linear-gradient(180deg, {p['cyan']}, {p['blue']}); box-shadow: 0 0 10px {p['glow']};
 }}
 
-/* metric cards — glowing panels with mono numerals */
+/* metric cards — white panels with soft shadow + sky numerals */
 [data-testid="stMetric"] {{
-  background: linear-gradient(180deg, {p['panel']} 0%, rgba(19,26,46,0.6) 100%);
+  background: {p['panel']};
   border: 1px solid {p['border']}; border-radius: 14px; padding: 14px 16px;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 8px 24px rgba(0,0,0,0.35);
+  box-shadow: 0 8px 22px rgba(2,132,199,0.08);
 }}
-[data-testid="stMetric"]:hover {{ border-color: rgba(34,211,238,0.45); box-shadow: 0 0 0 1px var(--ma-glow), 0 8px 28px rgba(0,0,0,0.4); }}
+[data-testid="stMetric"]:hover {{ border-color: rgba({_SKY},0.55); box-shadow: 0 0 0 1px var(--ma-glow), 0 10px 26px rgba(2,132,199,0.12); }}
 [data-testid="stMetricValue"] {{ font-family: {_FONT_MONO}; color: {p['cyan']}; font-weight: 600; }}
 [data-testid="stMetricLabel"] {{ color: {p['muted']}; text-transform: uppercase; letter-spacing: .6px; font-size: .72rem; }}
 
-/* tabs — spaced, rounded "pill" buttons (clearly clickable, not just text) */
+/* tabs — spaced, rounded "pill" buttons (clearly clickable) */
 [data-testid="stTabs"] [data-baseweb="tab-list"] {{
   gap: 10px; border-bottom: none; flex-wrap: wrap; padding: 4px 0 8px;
 }}
-/* hide the default baseweb underline highlight/border */
 [data-testid="stTabs"] [data-baseweb="tab-highlight"],
 [data-testid="stTabs"] [data-baseweb="tab-border"] {{ background: transparent !important; display: none !important; }}
 [data-testid="stTabs"] button[role="tab"] {{
   background: {p['panel']}; border: 1px solid {p['border']}; border-radius: 12px;
   padding: 8px 18px; color: {p['muted']}; font-family: {_FONT_HEAD}; font-weight: 500;
-  letter-spacing: .3px; transition: all .15s ease;
+  letter-spacing: .3px; transition: all .15s ease; box-shadow: 0 2px 8px rgba(2,132,199,0.05);
 }}
 [data-testid="stTabs"] button[role="tab"]:hover {{
-  border-color: rgba(52,219,240,0.6); color: {p['text']};
-  box-shadow: 0 0 0 1px var(--ma-glow);
+  border-color: rgba({_SKY},0.6); color: {p['text']}; box-shadow: 0 0 0 1px var(--ma-glow);
 }}
 [data-testid="stTabs"] button[role="tab"][aria-selected="true"] {{
-  color: #04121b; border-color: transparent;
-  background: linear-gradient(92deg, {p['cyan']}, {p['blue']});
+  color: #ffffff; border-color: transparent;
+  background: linear-gradient(92deg, #38bdf8, {p['cyan']});
   box-shadow: 0 4px 16px {p['glow']};
 }}
 [data-testid="stTabs"] button[role="tab"][aria-selected="true"] p {{ font-weight: 600; }}
 
-/* sidebar — translucent panel with a lit right edge */
+/* sidebar — light sky panel with a lit right edge */
 [data-testid="stSidebar"] {{
-  background: linear-gradient(180deg, rgba(19,26,46,0.92), rgba(13,20,40,0.92));
+  background: linear-gradient(180deg, rgba(240,246,255,0.96), rgba(233,243,255,0.96));
   border-right: 1px solid {p['border']}; backdrop-filter: blur(6px);
 }}
-[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {{ color: {p['text']}; }}
 
-/* primary buttons — cyan→blue gradient + hover glow */
+/* primary buttons — sky gradient */
 button[kind="primary"], [data-testid="stBaseButton-primary"] {{
-  background: linear-gradient(92deg, {p['cyan']}, {p['blue']}); border: 0; color: #04121b; font-weight: 600;
-  box-shadow: 0 4px 18px rgba(34,211,238,0.25);
+  background: linear-gradient(92deg, #38bdf8, {p['cyan']}); border: 0; color: #ffffff; font-weight: 600;
+  box-shadow: 0 4px 16px rgba({_SKY},0.30);
 }}
 button[kind="primary"]:hover, [data-testid="stBaseButton-primary"]:hover {{
-  filter: brightness(1.06); box-shadow: 0 6px 24px rgba(34,211,238,0.4);
+  filter: brightness(1.04); box-shadow: 0 6px 22px rgba({_SKY},0.42);
 }}
 
 /* secondary / download buttons — rounded cards */
@@ -169,7 +166,7 @@ button[kind="secondary"], [data-testid="stBaseButton-secondary"],
 }}
 button[kind="secondary"]:hover, [data-testid="stBaseButton-secondary"]:hover,
 [data-testid="stDownloadButton"] button:hover {{
-  border-color: rgba(52,219,240,0.6); color: {p['cyan']}; box-shadow: 0 0 0 1px var(--ma-glow);
+  border-color: rgba({_SKY},0.6); color: {p['cyan']}; box-shadow: 0 0 0 1px var(--ma-glow);
 }}
 
 /* inputs (select / multiselect / number / text / file uploader) — rounded cards */
@@ -182,7 +179,6 @@ div[data-baseweb="select"] > div:focus-within, div[data-baseweb="input"]:focus-w
 [data-testid="stNumberInputContainer"]:focus-within {{
   border-color: {p['cyan']} !important; box-shadow: 0 0 0 1px var(--ma-glow) !important;
 }}
-/* multiselect chips */
 [data-baseweb="tag"] {{ border-radius: 8px !important; }}
 
 /* radio options as rounded "pill" cards */
@@ -191,13 +187,12 @@ div[data-baseweb="select"] > div:focus-within, div[data-baseweb="input"]:focus-w
   background: {p['panel']}; border: 1px solid {p['border']}; border-radius: 11px;
   padding: 7px 14px; margin: 0; transition: all .15s ease;
 }}
-[data-testid="stRadio"] [role="radiogroup"] > label:hover {{ border-color: rgba(52,219,240,0.6); }}
+[data-testid="stRadio"] [role="radiogroup"] > label:hover {{ border-color: rgba({_SKY},0.6); }}
 [data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) {{
-  border-color: {p['cyan']}; background: rgba(52,219,240,0.10); box-shadow: 0 0 0 1px var(--ma-glow);
+  border-color: {p['cyan']}; background: rgba({_SKY},0.10); box-shadow: 0 0 0 1px var(--ma-glow);
 }}
 
-/* sliders + general focus ring tint */
-[data-testid="stSlider"] [role="slider"] {{ box-shadow: 0 0 0 4px rgba(52,219,240,0.18); }}
+[data-testid="stSlider"] [role="slider"] {{ box-shadow: 0 0 0 4px rgba({_SKY},0.18); }}
 
 /* dataframes — tinted header + hairline frame */
 [data-testid="stDataFrame"] {{ border: 1px solid {p['border']}; border-radius: 12px; overflow: hidden; }}
@@ -207,8 +202,8 @@ div[data-baseweb="select"] > div:focus-within, div[data-baseweb="input"]:focus-w
 code, kbd {{ font-family: {_FONT_MONO}; color: {p['cyan']}; }}
 hr {{ border-color: {p['border']}; }}
 ::-webkit-scrollbar {{ width: 10px; height: 10px; }}
-::-webkit-scrollbar-thumb {{ background: #1c2740; border-radius: 8px; border: 2px solid {p['bg']}; }}
-::-webkit-scrollbar-thumb:hover {{ background: #2a3a5c; }}
+::-webkit-scrollbar-thumb {{ background: #cddcf0; border-radius: 8px; border: 2px solid {p['bg']}; }}
+::-webkit-scrollbar-thumb:hover {{ background: #a9c2e0; }}
 </style>
 """
 
@@ -234,7 +229,7 @@ def plotly_template() -> go.layout.Template:
         yaxis=dict(gridcolor=p["grid"], zerolinecolor=p["grid"], linecolor=p["border"], tickcolor=p["border"]),
         legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=p["muted"])),
         margin=dict(t=50, b=20, l=10, r=10),
-        hoverlabel=dict(bgcolor=p["panel2"], font=dict(color=p["text"], family=_FONT_MONO),
+        hoverlabel=dict(bgcolor="#ffffff", font=dict(color=p["text"], family=_FONT_MONO),
                         bordercolor=p["border"]),
     ))
 
@@ -242,7 +237,7 @@ def plotly_template() -> go.layout.Template:
 def apply_default() -> None:
     """Register the template and make charts use it by default (call at import)."""
     pio.templates[_TEMPLATE_NAME] = plotly_template()
-    pio.templates.default = f"plotly_dark+{_TEMPLATE_NAME}"
+    pio.templates.default = f"plotly_white+{_TEMPLATE_NAME}"
 
 
 def style_fig(fig: go.Figure) -> go.Figure:

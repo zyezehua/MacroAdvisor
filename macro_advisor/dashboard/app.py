@@ -290,7 +290,7 @@ def _history(stress: StressResult) -> go.Figure:
     h = stress.history.tail(504)  # ~2y
     fig = go.Figure(go.Scatter(x=h.index, y=h.values, mode="lines",
                                line=dict(color=_PAL["cyan"], width=2),
-                               fill="tozeroy", fillcolor="rgba(52,219,240,0.06)"))
+                               fill="tozeroy", fillcolor="rgba(14,165,233,0.08)"))
     for edge, col in [(30, _BAND_COLORS["calm"]), (55, _BAND_COLORS["normal"]),
                       (70, _BAND_COLORS["stressed"]), (85, _BAND_COLORS["crisis"])]:
         fig.add_hline(y=edge, line_dash="dot", line_color=col, opacity=0.4)
@@ -531,7 +531,7 @@ def main() -> None:
                         st.markdown(f"**Illustrative payoff — {top['symbol']} ({pay.label})**")
                         fig = go.Figure(go.Scatter(x=pay.x, y=pay.y, mode="lines",
                                                    line=dict(color=_PAL["cyan"], width=2),
-                                                   fill="tozeroy", fillcolor="rgba(52,219,240,0.05)"))
+                                                   fill="tozeroy", fillcolor="rgba(14,165,233,0.07)"))
                         fig.add_hline(y=0, line_dash="dot", line_color=_PAL["muted"])
                         for name, xv in pay.markers.items():
                             fig.add_vline(x=xv, line_dash="dot", line_color=_PAL["border"],
@@ -556,6 +556,16 @@ def main() -> None:
                                 "end_date", "n_rows", "pull_ts"] if c in prov.columns]
             st.dataframe(prov[cols], width="stretch", hide_index=True)
             st.caption(f"Last pull: {prov['pull_ts'].max()}")
+            # best-effort, single-source feeds (GDELT news tone) can be rate-limited; surface
+            # that as "unavailable" rather than alarming — nothing else depends on them.
+            if "status" in prov.columns:
+                unavail = prov[prov["status"] == "unavailable"]
+                if not unavail.empty:
+                    names = ", ".join(unavail["key"].astype(str))
+                    st.info(f"ℹ️ Best-effort source(s) currently **unavailable**: {names}. "
+                            "GDELT news tone is single-source and occasionally rate-limited; "
+                            "the `news_tone` signal is simply omitted until it returns — no impact "
+                            "on the stress index, forecasts, or trade ideas.")
 
         st.subheader("QA flags")
         flags = pd.DataFrame(data["flags"])

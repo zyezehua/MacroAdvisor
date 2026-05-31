@@ -67,8 +67,11 @@ def fetch(label: str, query: str, timespan_months: int = 24) -> PullResult:
     timespan = f"{int(timespan_months)}months"
     tone = _fetch_mode(query, "TimelineTone", timespan)
     if tone is None or tone.empty:
-        return PullResult(label, SOURCE, "series", df=None, status="error",
-                          message=f"no GDELT tone for {query!r}", freq="D")
+        # best-effort, single-source: an unreachable/rate-limited GDELT is "unavailable",
+        # not a data-integrity error — the news_tone signal is simply omitted until it returns.
+        return PullResult(label, SOURCE, "series", df=None, status="unavailable",
+                          message=f"GDELT unavailable for {query!r} (best-effort, single-source)",
+                          freq="D")
     vol = _fetch_mode(query, "TimelineVolRaw", timespan)
     df = tone.to_frame("value")
     if vol is not None and not vol.empty:
