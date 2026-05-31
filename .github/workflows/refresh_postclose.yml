@@ -20,7 +20,7 @@ on:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45      # pull + full walk-forward training + backtest
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
     steps:
@@ -41,7 +41,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt -r requirements-phase2.txt
 
       - name: Refresh full cache and upload to HF Hub
         run: python scripts/refresh_and_upload.py --scope full
+
+      - name: Train walk-forward models + backtest, upload OOS artifacts
+        run: python scripts/train_and_backtest.py

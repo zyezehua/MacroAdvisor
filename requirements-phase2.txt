@@ -5,4 +5,6 @@
 scipy>=1.13
 statsmodels>=0.14
 scikit-learn>=1.4
+lightgbm>=4.3          # gradient-boosted tree models for OOS prediction
+shap>=0.44            # per-prediction attributions for the GBM model
 APScheduler>=3.10      # optional local always-on scheduler (cloud uses GitHub Actions)

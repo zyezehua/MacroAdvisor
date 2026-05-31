@@ -77,6 +77,10 @@ class Config:
     def remote(self) -> dict[str, Any]:
         return self.settings.get("remote", {})
 
+    @property
+    def predict(self) -> dict[str, Any]:
+        return self.settings.get("predict", {})
+
     def path(self, key: str) -> Path:
         """Resolve a storage path key (e.g. 'parquet_dir', 'db_path') to an absolute Path."""
         return REPO_ROOT / self.storage[key]

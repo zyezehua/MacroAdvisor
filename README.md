@@ -2,7 +2,7 @@
 
 An evidence-based, multi-asset market regime & trade advisory engine for US markets.
 
-> **Status:** Phase 1 (signal library + stress index + read-only dashboard). See [Roadmap](#roadmap).
+> **Status:** Phase 2a (walk-forward OOS prediction + backtester). See [Roadmap](#roadmap).
 
 ## What it does
 
@@ -71,6 +71,30 @@ streamlit run macro_advisor/dashboard/app.py   # interactive read-only dashboard
 Add `--fred-extras` to `pull_data.py` to also pull credit OAS / real-yield / breakeven series,
 which unlock the corresponding FRED-backed signals.
 
+## Prediction & backtest (Phase 2a)
+
+Walk-forward **out-of-sample** forecasting of per-asset forward returns (direction + magnitude)
+and the forward stress-index path, with **two model families shown side by side**: an
+interpretable linear model (coefficient attribution) and a gradient-boosted-tree model (SHAP
+attribution). Splits are **purged + embargoed** so no training row's forward label overlaps its
+test block — the no-leakage guarantee is asserted in the tests.
+
+```bash
+pip install -r requirements.txt -r requirements-phase2.txt   # lightgbm/shap for training only
+python scripts/train_and_backtest.py            # full walk-forward + backtest -> data/oos/*
+python scripts/train_and_backtest.py --fast     # coarse steps for a quick local check
+```
+
+- **Engine:** [predict/](macro_advisor/predict/) (features → labels → walk-forward → models) and
+  [backtest/](macro_advisor/backtest/) (vectorized, costs + slippage, Sortino-primary metrics).
+- **Universe:** ETF backtest universe only (survivorship-bias-free); live single names are never
+  used in OOS.
+- **Artifacts:** the **post-close** cron runs the trainer and ships `data/oos/*.parquet` to HF; the
+  dashboard's **Predictions** and **Backtest** tabs read them (so the app needs no ML libraries).
+  The intraday cron does not retrain.
+
+Forecasts are research output, not investment advice.
+
 ## Deployment (Streamlit Cloud)
 
 The cache under `data/` is gitignored, so the deployed app gets its data from a **public
@@ -108,8 +132,9 @@ No `FRED_API_KEY` is needed — the FRED adapter uses the keyless CSV endpoint.
 ## Roadmap
 
 - **Phase 0** — scaffolding, config, data adapters (Yahoo+FRED), cross-check, storage ✓
-- **Phase 1** — signal library + stress index + read-only dashboard ← *current*
-- **Phase 2** — prediction (walk-forward OOS) + recommendation engine + backtester
+- **Phase 1** — signal library + stress index + read-only dashboard ✓
+- **Phase 2a** — walk-forward OOS prediction + backtester ← *current*
+- **Phase 2b** — recommendation/ranking engine + trade-idea dashboard
 - **Phase 3** — manual override UI, custom strategies, then NLP/news/social sentiment
 
 ## Disclaimer
