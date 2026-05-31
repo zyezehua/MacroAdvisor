@@ -99,6 +99,16 @@ def test_ensure_cache_downloads_when_absent(tmp_path, fake_hf):
     assert len(fake_hf["snapshot_download"]) == 1
 
 
+def test_bare_sqlite_is_not_cache_present(tmp_path, fake_hf):
+    """An empty .sqlite (created as a side effect of MarketStore) must NOT count as a cache,
+    or the cloud app would skip the HF download (regression: live 'Cache sync: local' bug)."""
+    cfg = _cfg(tmp_path)
+    (tmp_path / "ma.sqlite").write_bytes(b"")          # bare DB, no parquet
+    assert remote.cache_present(cfg) is False
+    assert remote.sync_for_app(cfg) == "remote"        # downloads instead of skipping
+    assert len(fake_hf["snapshot_download"]) == 1
+
+
 def test_download_cache_writes_marker(tmp_path, fake_hf):
     cfg = _cfg(tmp_path)
     remote.download_cache(cfg)
