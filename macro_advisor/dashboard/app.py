@@ -10,6 +10,15 @@ Read-only: it loads from the local parquet/SQLite cache populated by
 """
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# `streamlit run` puts this file's directory on sys.path, not the repo root, so make the
+# macro_advisor package importable regardless of how the app is launched.
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
