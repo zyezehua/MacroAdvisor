@@ -29,6 +29,38 @@ horizons:
     max_days: 63
 
 # ---------------------------------------------------------------------------
+# Signal library (Phase 1)
+# ---------------------------------------------------------------------------
+signals:
+  lookback_days: 252          # trailing window for z-scores / percentile ranks (~1y)
+  squash_k: 1.5               # tanh(z / k) -> [-1, 1]; larger k = gentler squash
+  neutral_band: 0.10          # |score| <= this -> direction "neutral"
+
+# ---------------------------------------------------------------------------
+# Composite stress index (Phase 1)
+# Fixed, documented expert weights. Components are blended in z-space (higher =
+# more stress = risk-off) then mapped to 0-100. Weights renormalize over the
+# components actually available at compute time. Override locally or in-app.
+# ---------------------------------------------------------------------------
+stress:
+  weights:
+    volatility: 0.25          # VIX/VXN/MOVE — fastest, most direct risk gauge
+    credit: 0.20              # HY/IG spread proxy — funding/solvency stress leads equities
+    rates: 0.20               # curve slope/level — policy & recession signal
+    momentum: 0.15            # price trend/momentum — confirms regime
+    breadth: 0.10             # participation — fragility under thin leadership
+    cross_asset: 0.10         # USD strength + stock-bond correlation
+  # Bands are upper edges; >stressed => "crisis". Signals are z-scored against their own
+  # trailing window, so the latent mean-reverts around 0 and a *typical* market maps to a
+  # level near 50 — hence "normal" straddles 50 rather than sitting at the low end.
+  bands:
+    calm: 30
+    normal: 55
+    elevated: 70
+    stressed: 85
+  logistic_k: 1.0             # steepness of z -> 0-100 logistic map
+
+# ---------------------------------------------------------------------------
 # Refresh cadence
 # ---------------------------------------------------------------------------
 refresh:

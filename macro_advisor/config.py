@@ -65,6 +65,14 @@ class Config:
     def backtest(self) -> dict[str, Any]:
         return self.settings["backtest"]
 
+    @property
+    def signals(self) -> dict[str, Any]:
+        return self.settings.get("signals", {})
+
+    @property
+    def stress(self) -> dict[str, Any]:
+        return self.settings.get("stress", {})
+
     def path(self, key: str) -> Path:
         """Resolve a storage path key (e.g. 'parquet_dir', 'db_path') to an absolute Path."""
         return REPO_ROOT / self.storage[key]

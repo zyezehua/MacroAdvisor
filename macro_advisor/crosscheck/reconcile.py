@@ -80,7 +80,10 @@ def check_series(
         n_bad = int(bad.sum())
         if n_bad:
             flags.append(Flag("OHLC_INCONSISTENT", "warn", {"n_rows": n_bad}))
-    if col in df.columns:
+    # Non-positive *prices* are impossible (bad print). Yields are NOT prices: zero or
+    # slightly negative short-tenor yields are economically valid (e.g. ZIRP 2008-15/2020),
+    # so this check is scoped to price columns only.
+    if col in ("adj_close", "close"):
         n_nonpos = int((df[col] <= 0).sum())
         if n_nonpos:
             flags.append(Flag("NONPOSITIVE_PRICE", "error", {"n_rows": n_nonpos}))
