@@ -67,7 +67,7 @@ stress:
 # with two model families (interpretable + gradient-boosted trees).
 # ---------------------------------------------------------------------------
 predict:
-  models: [linear, gbm]         # families to train (see predict/models.py)
+  models: [linear, gbm, stack]  # families to train (see predict/models.py); stack = OOF ensemble
   direction_neutral_band: 0.005 # |fwd return| <= this -> "flat" label (per day, scaled by horizon)
   prob_threshold: 0.55          # min up/down probability to take a position in the backtest
   asset_feature_lookbacks: [21, 63, 126]   # per-asset technical windows (trading days)
@@ -75,6 +75,25 @@ predict:
     vol_target_annual: 0.10     # per-position annualized vol target for sizing
     max_position: 1.0           # cap on |weight| per asset (gross), before risk-budget caps
     long_only: false            # allow shorts on a "down" signal
+
+  # -- ML uplift (Phase 4) --------------------------------------------------
+  # All leakage-safe: calibration/tuning use a PURGED inner split of the training fold only
+  # (predict/selection.py), never the outer OOS test block. --fast disables the heavy ones.
+  calibrate:
+    enabled: true               # calibrate classifier p_up/p_down (the recommender gates on them)
+    method: isotonic            # isotonic | sigmoid
+    cv_splits: 4                # purged inner folds used to fit the calibration map
+  sample_weight:
+    enabled: true               # weight training rows (recency + label-uniqueness)
+    recency_halflife_days: 504  # ~2y half-life exponential recency decay (0 = off)
+    uniqueness: true            # down-weight rows whose forward label window overlaps neighbours
+  tune:
+    enabled: true               # grid-search hyperparameters per fold via purged inner WF-CV
+    cv_splits: 3                # purged inner folds used to score each candidate
+    fast_disable: true          # skip tuning under --fast (coarse/quick runs)
+  stack:
+    cv_splits: 4                # purged out-of-fold splits for the stacking meta-learner
+    base_models: [linear, gbm]  # families blended by the "stack" meta-learner
 
 # ---------------------------------------------------------------------------
 # Recommendation / ranking (Phase 2b)

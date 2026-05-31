@@ -40,16 +40,28 @@ def _sign(x: float) -> int:
 
 
 def ensemble_frame(forecast: pd.DataFrame, horizon: str) -> pd.DataFrame:
-    """Per-symbol ensemble of the model forecasts for one horizon."""
+    """Per-symbol ensemble of the model forecasts for one horizon.
+
+    When the Phase-4 ``stack`` meta-learner is present its forecast *is* the ensemble (a principled
+    out-of-fold blend); otherwise we fall back to the simple cross-model average. Either way the
+    per-model direction/confidence and agreement flag are computed over the **base** families
+    (``stack`` is excluded from the agreement vote so it can't trivially agree with itself).
+    """
     h = forecast[forecast["horizon"] == horizon]
     rows = []
     for sym, g in h.groupby("symbol"):
-        ens_up, ens_down, ens_ret = g["p_up"].mean(), g["p_down"].mean(), g["exp_ret"].mean()
+        base = g[g["model"] != "stack"]
+        stack = g[g["model"] == "stack"]
+        if not stack.empty:
+            s = stack.iloc[0]
+            ens_up, ens_down, ens_ret = s["p_up"], s["p_down"], s["exp_ret"]
+        else:
+            ens_up, ens_down, ens_ret = g["p_up"].mean(), g["p_down"].mean(), g["exp_ret"].mean()
         per = {f"{r['model']}_dir": _sign(r["pred"]) for _, r in g.iterrows()}
         per.update({f"{r['model']}_conf": max(r["p_up"], r["p_down"]) for _, r in g.iterrows()})
-        signs = {_sign(r["pred"]) for _, r in g.iterrows() if r["pred"] != 0}
+        signs = {_sign(r["pred"]) for _, r in base.iterrows() if r["pred"] != 0}
         rows.append({"symbol": sym, "p_up": ens_up, "p_down": ens_down, "exp_ret": ens_ret,
-                     "agree": len(signs) == 1 and len(g) > 1, **per})
+                     "agree": len(signs) == 1 and len(base) > 1, **per})
     return pd.DataFrame(rows)
 
 
