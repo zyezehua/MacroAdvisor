@@ -1,0 +1,47 @@
+# =============================================================================
+# Post-close data refresh — full universe + Treasury curve + FRED extras.
+#
+# Required repo secret (Settings → Secrets and variables → Actions):
+#   HF_TOKEN  — Hugging Face write token for the cache dataset repo
+#
+# The deployed app re-pulls the HF snapshot on its own cache TTL (~30 min), so no
+# Streamlit reboot / API keys are needed.
+#
+# Note: GitHub cron is UTC and does not observe US DST, so the run time drifts ~1h
+# across the year. 22:00 UTC is comfortably after the US cash close in both EST/EDT.
+# =============================================================================
+name: Refresh (post-close, full)
+
+on:
+  schedule:
+    - cron: "0 22 * * 1-5"      # 22:00 UTC, weekdays — after US close
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-py313-${{ hashFiles('requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-py313-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Refresh full cache and upload to HF Hub
+        run: python scripts/refresh_and_upload.py --scope full

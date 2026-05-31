@@ -1,0 +1,8 @@
+# Phase-2 analytics dependencies (prediction / recommendation / backtester).
+# Not needed by the data pipeline or the Phase-1 dashboard, so they're kept out of
+# requirements.txt to keep Streamlit Cloud builds fast. Install with:
+#   pip install -r requirements.txt -r requirements-phase2.txt
+scipy>=1.13
+statsmodels>=0.14
+scikit-learn>=1.4
+APScheduler>=3.10      # optional local always-on scheduler (cloud uses GitHub Actions)

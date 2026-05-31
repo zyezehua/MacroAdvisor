@@ -73,6 +73,10 @@ class Config:
     def stress(self) -> dict[str, Any]:
         return self.settings.get("stress", {})
 
+    @property
+    def remote(self) -> dict[str, Any]:
+        return self.settings.get("remote", {})
+
     def path(self, key: str) -> Path:
         """Resolve a storage path key (e.g. 'parquet_dir', 'db_path') to an absolute Path."""
         return REPO_ROOT / self.storage[key]

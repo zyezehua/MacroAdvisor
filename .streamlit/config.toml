@@ -1,0 +1,10 @@
+# Streamlit configuration for the MacroAdvisor dashboard (local + Streamlit Cloud).
+[theme]
+base = "dark"
+
+[server]
+headless = true
+enableCORS = false
+
+[browser]
+gatherUsageStats = false

@@ -71,6 +71,40 @@ streamlit run macro_advisor/dashboard/app.py   # interactive read-only dashboard
 Add `--fred-extras` to `pull_data.py` to also pull credit OAS / real-yield / breakeven series,
 which unlock the corresponding FRED-backed signals.
 
+## Deployment (Streamlit Cloud)
+
+The cache under `data/` is gitignored, so the deployed app gets its data from a **public
+Hugging Face Hub dataset repo**. A GitHub Actions cron refreshes the data and uploads it; the
+app re-pulls the latest snapshot on its own cache TTL (~30 min) — no reboot or extra secrets.
+
+```
+GitHub Actions cron ──► scripts/refresh_and_upload.py ──► HF dataset repo
+                                                              │
+                          Streamlit Cloud app ◄──────────────┘ (re-pulls every ~30 min)
+```
+
+- **Refresh:** [.github/workflows/refresh_postclose.yml](.github/workflows/refresh_postclose.yml)
+  (full universe + FRED, 22:00 UTC weekdays) and
+  [.github/workflows/refresh_intraday.yml](.github/workflows/refresh_intraday.yml)
+  (core scope, hourly during US market hours).
+- **Sync:** [macro_advisor/storage/remote.py](macro_advisor/storage/remote.py) — `upload_cache`
+  (`HfApi.upload_folder`) and `sync_for_app` (`snapshot_download`, only changed files). Repo
+  defaults to `zyezehua/macroadvisor-cache`; override with the `MACROADVISOR_HF_REPO` env var.
+- **App:** [macro_advisor/dashboard/app.py](macro_advisor/dashboard/app.py) re-pulls the snapshot
+  every ~30 min (anonymous read, since the repo is public) and recomputes signals/stress live. A
+  locally-pulled dev cache is detected via a marker file and never overwritten.
+
+### One-time setup
+
+1. Create a Hugging Face **write** token at <https://huggingface.co/settings/tokens> → add it as
+   repo secret `HF_TOKEN` (GitHub → Settings → Secrets and variables → Actions). The dataset repo
+   auto-creates on first upload; set it **public**.
+2. Seed the cache once: `HF_TOKEN=… python scripts/refresh_and_upload.py --scope full`.
+3. Deploy on [share.streamlit.io](https://share.streamlit.io): main file
+   `macro_advisor/dashboard/app.py`, **Python 3.13** (Streamlit Cloud's max; the data layer is 3.13-compatible).
+
+No `FRED_API_KEY` is needed — the FRED adapter uses the keyless CSV endpoint.
+
 ## Roadmap
 
 - **Phase 0** — scaffolding, config, data adapters (Yahoo+FRED), cross-check, storage ✓
