@@ -2,7 +2,7 @@
 
 An evidence-based, multi-asset market regime & trade advisory engine for US markets.
 
-> **Status:** Phase 0 (scaffolding + data layer). See [Roadmap](#roadmap).
+> **Status:** Phase 1 (signal library + stress index + read-only dashboard). See [Roadmap](#roadmap).
 
 ## What it does
 
@@ -63,13 +63,18 @@ unreconciled data.** This is the defense against garbage-in inputs and headline/
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python scripts/pull_data.py --core   # smoke-test the data pipeline
+python scripts/pull_data.py --full        # populate the data cache (Yahoo + Treasury curve)
+python scripts/compute_signals.py         # signals + composite stress index (text summary)
+streamlit run macro_advisor/dashboard/app.py   # interactive read-only dashboard
 ```
+
+Add `--fred-extras` to `pull_data.py` to also pull credit OAS / real-yield / breakeven series,
+which unlock the corresponding FRED-backed signals.
 
 ## Roadmap
 
-- **Phase 0** — scaffolding, config, data adapters (Yahoo+FRED), cross-check, storage ← *current*
-- **Phase 1** — signal library + stress index + read-only dashboard
+- **Phase 0** — scaffolding, config, data adapters (Yahoo+FRED), cross-check, storage ✓
+- **Phase 1** — signal library + stress index + read-only dashboard ← *current*
 - **Phase 2** — prediction (walk-forward OOS) + recommendation engine + backtester
 - **Phase 3** — manual override UI, custom strategies, then NLP/news/social sentiment
 
