@@ -19,8 +19,9 @@ from macro_advisor.config import Config, load_config
 log = logging.getLogger(__name__)
 
 DEFAULT_REPO = "zyezehua/macroadvisor-cache"
-#: files synced, relative to the data root — price/series parquet + provenance DB
-_ALLOW = ["prices/*", "series/*", "*.sqlite"]
+#: files synced, relative to the data root — price/series parquet, provenance DB,
+#: and the Phase-2 OOS prediction/backtest artifacts
+_ALLOW = ["prices/*", "series/*", "*.sqlite", "oos/*"]
 #: marker dropped in the data root when the cache was sourced from HF (vs a local pull),
 #: so the app knows it's safe to periodically re-pull without clobbering local dev data.
 _MARKER = ".hf_synced"

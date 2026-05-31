@@ -61,6 +61,21 @@ stress:
   logistic_k: 1.0             # steepness of z -> 0-100 logistic map
 
 # ---------------------------------------------------------------------------
+# Prediction + backtest (Phase 2a)
+# Walk-forward OOS forecasting of per-asset forward returns and the stress path,
+# with two model families (interpretable + gradient-boosted trees).
+# ---------------------------------------------------------------------------
+predict:
+  models: [linear, gbm]         # families to train (see predict/models.py)
+  direction_neutral_band: 0.005 # |fwd return| <= this -> "flat" label (per day, scaled by horizon)
+  prob_threshold: 0.55          # min up/down probability to take a position in the backtest
+  asset_feature_lookbacks: [21, 63, 126]   # per-asset technical windows (trading days)
+  backtest:
+    vol_target_annual: 0.10     # per-position annualized vol target for sizing
+    max_position: 1.0           # cap on |weight| per asset (gross), before risk-budget caps
+    long_only: false            # allow shorts on a "down" signal
+
+# ---------------------------------------------------------------------------
 # Refresh cadence
 # ---------------------------------------------------------------------------
 refresh:

@@ -94,6 +94,19 @@ def _load() -> dict:
     }
 
 
+@st.cache_data(ttl=_TTL, show_spinner=False)
+def _load_oos() -> dict:
+    """Read the precomputed Phase-2 OOS artifacts (data/oos/*.parquet); {} if not present."""
+    _sync_cache()
+    out: dict[str, pd.DataFrame] = {}
+    base = _CFG.path("root") / "oos"
+    for name in ("metrics", "equity", "forecast", "attrib", "stress", "meta"):
+        f = base / f"{name}.parquet"
+        if f.exists():
+            out[name] = pd.read_parquet(f)
+    return out
+
+
 def _gauge(stress: StressResult) -> go.Figure:
     color = _BAND_COLORS.get(stress.label, "#607d8b")
     fig = go.Figure(go.Indicator(
@@ -160,7 +173,8 @@ def main() -> None:
         )
         st.stop()
 
-    overview, signals_tab, health = st.tabs(["Overview", "Signals", "Data Health"])
+    overview, signals_tab, predictions, backtest_tab, health = st.tabs(
+        ["Overview", "Signals", "Predictions", "Backtest", "Data Health"])
 
     # -- Overview --------------------------------------------------------
     with overview:
@@ -196,6 +210,86 @@ def main() -> None:
         )
         st.caption("Score in [-1, +1]: +risk-on / -risk-off, z-scored vs each signal's "
                    "own trailing window. Every signal is traceable to the listed inputs.")
+
+    oos = _load_oos()
+
+    # -- Predictions -----------------------------------------------------
+    with predictions:
+        if "forecast" not in oos:
+            st.info("No prediction artifacts yet. Run `python scripts/train_and_backtest.py` "
+                    "(the post-close cron produces these).")
+        else:
+            fc, stress_fc = oos["forecast"], oos.get("stress", pd.DataFrame())
+            attrib = oos.get("attrib", pd.DataFrame())
+            meta = oos.get("meta", pd.DataFrame())
+            if not meta.empty:
+                st.caption(f"Walk-forward OOS forecast · as of {meta.iloc[0].get('asof','?')} · "
+                           "+1 = up / −1 = down / 0 = flat over the horizon")
+            _HNAME = {"short": "Short (1–5d)", "med_long": "Med-long (1–3m)"}
+            for model_label, model_key in (("Interpretable (linear)", "linear"), ("ML (gradient-boosted trees)", "gbm")):
+                st.subheader(model_label)
+                mfc = fc[fc["model"] == model_key]
+                if mfc.empty:
+                    st.caption("— no forecast for this model —")
+                    continue
+                cols = st.columns(2)
+                for col, (hk, htitle) in zip(cols, _HNAME.items()):
+                    sub = mfc[mfc["horizon"] == hk]
+                    with col:
+                        st.markdown(f"**{htitle}**")
+                        if not stress_fc.empty:
+                            srow = stress_fc[(stress_fc["model"] == model_key) & (stress_fc["horizon"] == hk)]
+                            if not srow.empty:
+                                chg = float(srow.iloc[0]["fwd_stress_chg"])
+                                st.metric("Stress forecast", f"{srow.iloc[0]['current_stress']:.0f} → "
+                                          f"{srow.iloc[0]['current_stress']+chg:.0f}", f"{chg:+.1f}")
+                        show = sub[["symbol", "pred", "p_up", "p_down", "exp_ret"]].copy()
+                        show["dir"] = show["pred"].map({1: "🟢 up", -1: "🔴 down", 0: "⚪ flat"})
+                        show = show[["symbol", "dir", "p_up", "p_down", "exp_ret"]].sort_values("exp_ret", ascending=False)
+                        show["exp_ret"] = (show["exp_ret"] * 100).round(2)   # -> percent
+                        st.dataframe(show, hide_index=True, width="stretch", column_config={
+                            "p_up": st.column_config.NumberColumn("P(up)", format="%.2f"),
+                            "p_down": st.column_config.NumberColumn("P(down)", format="%.2f"),
+                            "exp_ret": st.column_config.NumberColumn("exp. return %", format="%.2f"),
+                        })
+                if not attrib.empty:
+                    ma = attrib[attrib["model"] == model_key]
+                    if not ma.empty:
+                        top = (ma.groupby("feature")["importance"].mean()
+                               .sort_values(ascending=False).head(8))
+                        st.caption("Top drivers: " + " · ".join(f"{f} ({v:.3f})" for f, v in top.items()))
+            st.caption("OOS = purged/embargoed walk-forward; the linear model is read off its "
+                       "coefficients, the GBM off SHAP values. Research only — not investment advice.")
+
+    # -- Backtest --------------------------------------------------------
+    with backtest_tab:
+        if "metrics" not in oos:
+            st.info("No backtest artifacts yet. Run `python scripts/train_and_backtest.py`.")
+        else:
+            st.subheader("Out-of-sample performance")
+            mt = oos["metrics"].copy()
+            for c in ("max_drawdown", "cagr", "hit_rate", "oos_hit_rate"):
+                if c in mt.columns:
+                    mt[c] = (mt[c] * 100).round(1)          # fractions -> percent
+            st.dataframe(mt, hide_index=True, width="stretch", column_config={
+                "sortino": st.column_config.NumberColumn("Sortino", format="%.2f"),
+                "sharpe": st.column_config.NumberColumn("Sharpe", format="%.2f"),
+                "max_drawdown": st.column_config.NumberColumn("max DD %", format="%.1f"),
+                "cagr": st.column_config.NumberColumn("CAGR %", format="%.1f"),
+                "hit_rate": st.column_config.NumberColumn("hit %", format="%.1f"),
+                "oos_hit_rate": st.column_config.NumberColumn("OOS dir. hit %", format="%.1f"),
+            })
+            if "equity" in oos and not oos["equity"].empty:
+                eq = oos["equity"]
+                fig = go.Figure()
+                for c in eq.columns:
+                    fig.add_trace(go.Scatter(x=eq.index, y=eq[c], mode="lines", name=c,
+                                             line=dict(width=2.5 if c == "SPY" else 1.5)))
+                fig.update_layout(title="OOS equity curves (growth of $1)", height=420,
+                                  margin=dict(t=50, b=20, l=10, r=10), legend_title="strategy")
+                st.plotly_chart(fig, width="stretch")
+            st.caption("Sortino-primary (the locked ranking objective). Costs + slippage applied; "
+                       "vol-targeted within the risk budget; only OOS-predicted dates trade.")
 
     # -- Data Health -----------------------------------------------------
     with health:
