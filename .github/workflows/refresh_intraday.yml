@@ -3,7 +3,8 @@
 # Lighter + more frequent than the post-close run; the Treasury curve and sector
 # breadth are refreshed post-close (they move on a daily cadence).
 #
-# Required repo secrets: HF_TOKEN (write). Optional: STREAMLIT_API_KEY, STREAMLIT_APP_ID.
+# Required repo secret: HF_TOKEN (write). The app self-refreshes from HF on its cache
+# TTL, so no Streamlit reboot / API keys are needed.
 #
 # GitHub cron is UTC / no DST. 14:00–20:00 UTC spans the US cash session (covers
 # 09:30–16:00 ET in both EST and EDT, give or take the DST hour).
@@ -43,14 +44,3 @@ jobs:
 
       - name: Refresh core cache and upload to HF Hub
         run: python scripts/refresh_and_upload.py --scope core
-
-      - name: Reboot Streamlit Cloud app
-        if: ${{ secrets.STREAMLIT_APP_ID != '' }}
-        continue-on-error: true
-        run: |
-          status=$(curl --silent --output /dev/null --write-out "%{http_code}" \
-            --request POST \
-            --header "Authorization: Bearer ${{ secrets.STREAMLIT_API_KEY }}" \
-            --header "Content-Type: application/json" \
-            "https://api.streamlit.io/v1/apps/${{ secrets.STREAMLIT_APP_ID }}/reboot")
-          echo "Streamlit reboot HTTP $status"

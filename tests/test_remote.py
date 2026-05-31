@@ -97,3 +97,35 @@ def test_ensure_cache_downloads_when_absent(tmp_path, fake_hf):
     cfg = _cfg(tmp_path)
     assert remote.ensure_cache(cfg) is True
     assert len(fake_hf["snapshot_download"]) == 1
+
+
+def test_download_cache_writes_marker(tmp_path, fake_hf):
+    cfg = _cfg(tmp_path)
+    remote.download_cache(cfg)
+    assert (tmp_path / remote._MARKER).exists()
+
+
+# -- sync_for_app (app cache strategy) ---------------------------------------
+def test_sync_for_app_leaves_local_cache(tmp_path, fake_hf):
+    """A locally-pulled cache (no HF marker) must not be touched."""
+    cfg = _cfg(tmp_path)
+    (tmp_path / "prices").mkdir(parents=True)
+    (tmp_path / "prices" / "SPY.parquet").write_bytes(b"x")
+    assert remote.sync_for_app(cfg) == "local"
+    assert fake_hf["snapshot_download"] == []
+
+
+def test_sync_for_app_repulls_when_marked(tmp_path, fake_hf):
+    """An HF-managed cache (marker present) is re-pulled even though it exists."""
+    cfg = _cfg(tmp_path)
+    (tmp_path / "prices").mkdir(parents=True)
+    (tmp_path / "prices" / "SPY.parquet").write_bytes(b"x")
+    (tmp_path / remote._MARKER).write_text("")
+    assert remote.sync_for_app(cfg) == "remote"
+    assert len(fake_hf["snapshot_download"]) == 1
+
+
+def test_sync_for_app_downloads_when_absent(tmp_path, fake_hf):
+    cfg = _cfg(tmp_path)
+    assert remote.sync_for_app(cfg) == "remote"
+    assert len(fake_hf["snapshot_download"]) == 1

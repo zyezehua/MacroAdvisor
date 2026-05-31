@@ -1,10 +1,11 @@
 # =============================================================================
 # Post-close data refresh — full universe + Treasury curve + FRED extras.
 #
-# Required repo secrets (Settings → Secrets and variables → Actions):
-#   HF_TOKEN           — Hugging Face write token for the cache dataset repo
-#   STREAMLIT_API_KEY  — Streamlit Cloud management API key   (optional: reboot step)
-#   STREAMLIT_APP_ID   — Streamlit Cloud app UUID             (optional: reboot step)
+# Required repo secret (Settings → Secrets and variables → Actions):
+#   HF_TOKEN  — Hugging Face write token for the cache dataset repo
+#
+# The deployed app re-pulls the HF snapshot on its own cache TTL (~30 min), so no
+# Streamlit reboot / API keys are needed.
 #
 # Note: GitHub cron is UTC and does not observe US DST, so the run time drifts ~1h
 # across the year. 22:00 UTC is comfortably after the US cash close in both EST/EDT.
@@ -44,14 +45,3 @@ jobs:
 
       - name: Refresh full cache and upload to HF Hub
         run: python scripts/refresh_and_upload.py --scope full
-
-      - name: Reboot Streamlit Cloud app
-        if: ${{ secrets.STREAMLIT_APP_ID != '' }}
-        continue-on-error: true
-        run: |
-          status=$(curl --silent --output /dev/null --write-out "%{http_code}" \
-            --request POST \
-            --header "Authorization: Bearer ${{ secrets.STREAMLIT_API_KEY }}" \
-            --header "Content-Type: application/json" \
-            "https://api.streamlit.io/v1/apps/${{ secrets.STREAMLIT_APP_ID }}/reboot")
-          echo "Streamlit reboot HTTP $status"

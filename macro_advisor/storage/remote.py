@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 
 from macro_advisor.config import Config, load_config
 
@@ -20,6 +21,9 @@ log = logging.getLogger(__name__)
 DEFAULT_REPO = "zyezehua/macroadvisor-cache"
 #: files synced, relative to the data root — price/series parquet + provenance DB
 _ALLOW = ["prices/*", "series/*", "*.sqlite"]
+#: marker dropped in the data root when the cache was sourced from HF (vs a local pull),
+#: so the app knows it's safe to periodically re-pull without clobbering local dev data.
+_MARKER = ".hf_synced"
 
 
 def resolve_repo(cfg: Config | None = None) -> str:
@@ -89,6 +93,8 @@ def download_cache(cfg: Config | None = None, *, token: str | None = None) -> st
         allow_patterns=_ALLOW,
         token=token,
     )
+    # mark the cache as HF-managed so the app may safely re-pull it on a schedule
+    (Path(local) / _MARKER).write_text("")
     log.info("downloaded cache from %s -> %s", repo, local)
     return local
 
@@ -100,3 +106,22 @@ def ensure_cache(cfg: Config | None = None, *, token: str | None = None) -> bool
         return False
     download_cache(cfg, token=token)
     return True
+
+
+def sync_for_app(cfg: Config | None = None, *, token: str | None = None) -> str:
+    """Cache strategy for the deployed dashboard.
+
+    - **Local dev** (a locally-pulled cache with no HF marker): leave it alone — never
+      overwrite freshly pulled data, and don't require HF at all.
+    - **Cloud** (no cache yet, or a previously HF-downloaded cache): (re)download the latest
+      snapshot. ``snapshot_download`` only transfers changed files, so calling this on the
+      app's cache TTL keeps the deployed app fresh with no reboot and no extra secrets.
+
+    Returns ``"local"`` or ``"remote"``.
+    """
+    cfg = cfg or load_config()
+    marker = cfg.path("root") / _MARKER
+    if cache_present(cfg) and not marker.exists():
+        return "local"
+    download_cache(cfg, token=token)
+    return "remote"

@@ -49,16 +49,12 @@ def _hf_token() -> str | None:
         return None
 
 
-@st.cache_resource(ttl=_TTL, show_spinner="Fetching data cache from Hugging Face Hub…")
+@st.cache_data(ttl=_TTL, show_spinner="Fetching data cache from Hugging Face Hub…")
 def _sync_cache() -> str:
-    """Ensure a local data cache exists, downloading from HF Hub when absent (cloud boot).
-
-    Cached as a resource so it runs once per container; intraday freshness is delivered by
-    the cron's Streamlit-reboot step, which restarts the container and re-triggers this.
-    """
+    """Sync the data cache from HF Hub. Cached with a TTL, so the deployed app re-pulls the
+    latest snapshot every TTL (no reboot needed); a local dev cache is left untouched."""
     try:
-        downloaded = remote.ensure_cache(_CFG, token=_hf_token())
-        return "downloaded from HF Hub" if downloaded else "using local cache"
+        return remote.sync_for_app(_CFG, token=_hf_token())
     except Exception as exc:  # surfaced by the no-data guard in main()
         return f"cache sync failed: {exc}"
 
