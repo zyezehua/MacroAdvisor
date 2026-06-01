@@ -40,6 +40,21 @@ def test_all_risk_off_is_crisis(store_factory):
     assert res.level > 85 and res.label == "crisis"
 
 
+def test_sentiment_only_tail_does_not_define_reading(store_factory):
+    """A real-time news-tone date past the last market close must not collapse the reading to
+    sentiment alone (coverage floor anchors `asof` to the last well-covered market date)."""
+    store = store_factory()
+    sigs = _signals(+0.5)
+    ext = IDX.append(pd.bdate_range(start=IDX.max() + pd.offsets.BDay(1), periods=1))
+    news = pd.Series(np.full(len(ext), -0.9), index=ext)         # sentiment extends one day past
+    sigs["news_tone"] = SignalResult(name="news_tone", category="sentiment", score=news, raw=news,
+                                     direction="x", attribution="news", asof=ext.max(),
+                                     inputs=["news_tone"])
+    res = compute_stress(store, sigs)
+    assert res.asof == IDX.max()                                 # not the sentiment-only tail date
+    assert len(res.components) > 1 and "volatility" in {c.component for c in res.components}
+
+
 def test_neutral_is_normal(store_factory):
     store = store_factory()
     res = compute_stress(store, _signals(0.0))
