@@ -2,7 +2,7 @@
 
 An evidence-based, multi-asset market regime & trade advisory engine for US markets.
 
-> **Status:** Phase 4 (ML uplift · calibration · tuning · stacking · diagnostics). See [Roadmap](#roadmap).
+> **Status:** Phase 5 (tunable model-signal strategy backtests · PnL attribution · rich stats). See [Roadmap](#roadmap).
 
 ## What it does
 
@@ -182,6 +182,34 @@ python scripts/train_and_backtest.py --fast     # coarse: tuning/diag skipped fo
 Config lives under `predict.{calibrate,sample_weight,tune,stack}` in
 [config/settings.yaml](config/settings.yaml). Research output only — not investment advice.
 
+## Strategy backtests (Phase 5)
+
+Turns the fixed OOS model backtest into **named, tunable strategies** the user can re-backtest
+**live** in the app, each with full **PnL attribution** and a **rich statistics** panel — all on
+liquid ETF/futures proxies, all out-of-sample.
+
+- **Default model-signal strategies** ([strategy/model_strategies.py](macro_advisor/strategy/model_strategies.py)) —
+  *Ensemble Directional*, *Cross-Asset Ensemble*, *Stress-Gated Equity Trend*, *Risk-On/Off
+  Rotation*, *High-Conviction Ensemble*. Each trades the walk-forward OOS model directions, not raw
+  signals — so it's genuinely OOS (distinct from the in-sample Strategy Lab).
+- **Tunable knobs:** model family · horizon · **conviction/signal threshold** · rebalance/roll
+  frequency · **minimum holding period** (hysteresis, decoupled from rebalance) · long-short vs
+  long-only · vol-target/equal sizing · leverage & per-position caps · trading costs · and a
+  **stress gate** (defensive-equity or risk-on/off rotation across the equity & rates sleeves).
+- **PnL attribution** ([backtest/attribution.py](macro_advisor/backtest/attribution.py)) — per-asset
+  gross/cost/net contribution, long-vs-short gross, and a gross→cost→net waterfall, as additive
+  contributions that reconcile to the headline return.
+- **Rich statistics** ([backtest/metrics.py](macro_advisor/backtest/metrics.py) `extended`) —
+  annualized vol, Calmar, win/loss + profit/payoff factor, VaR/CVaR(95), skew/kurtosis, beta/alpha
+  vs SPY, drawdown duration, time-in-market, gross exposure, annual turnover, and a monthly-return
+  table.
+- **Live & dependency-free:** the trainer ships `data/oos/oos_predictions.parquet` (the full OOS
+  direction series); the **Strategy Backtest** tab re-runs the vectorized backtester as the user
+  moves the sliders — pure pandas, **no ML libraries** in the app.
+
+Options / delta-hedged overlays are intentionally **deferred** (no credible free options/IV
+history); the strategy spec leaves a clean seam for them. Research output only — not investment advice.
+
 ## Deployment (Streamlit Cloud)
 
 The cache under `data/` is gitignored, so the deployed app gets its data from a **public
@@ -223,7 +251,8 @@ No `FRED_API_KEY` is needed — the FRED adapter uses the keyless CSV endpoint.
 - **Phase 2a** — walk-forward OOS prediction + backtester ✓
 - **Phase 2b** — recommendation/ranking engine + trade-idea dashboard ✓
 - **Phase 3** — manual override UI + custom-strategy lab + news/sentiment signals ✓
-- **Phase 4** — ML uplift: calibration · sample weighting · leakage-safe tuning · stacking · diagnostics ← *current*
+- **Phase 4** — ML uplift: calibration · sample weighting · leakage-safe tuning · stacking · diagnostics ✓
+- **Phase 5** — tunable model-signal strategy backtests · PnL attribution · rich statistics ← *current*
 
 ## Disclaimer
 
