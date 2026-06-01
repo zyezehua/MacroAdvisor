@@ -33,6 +33,7 @@ from macro_advisor.signals import compute_all
 from macro_advisor.storage import remote
 from macro_advisor.stress import StressResult, compute_stress
 from macro_advisor.strategy import available_inputs, evaluate as eval_strategy, spec_from_json, spec_to_json
+from macro_advisor.strategy import model_strategies as ms
 from macro_advisor.strategy.library import presets
 from macro_advisor.strategy.spec import REBALANCES, Rule, StrategySpec
 from macro_advisor.dashboard import theme
@@ -109,7 +110,7 @@ def _load_oos() -> dict:
     out: dict[str, pd.DataFrame] = {}
     base = _CFG.path("root") / "oos"
     for name in ("metrics", "equity", "forecast", "attrib", "stress", "meta",
-                 "diagnostics", "reliability", "conviction"):
+                 "diagnostics", "reliability", "conviction", "oos_predictions"):
         f = base / f"{name}.parquet"
         if f.exists():
             out[name] = pd.read_parquet(f)
@@ -300,12 +301,126 @@ def _history(stress: StressResult) -> go.Figure:
     return theme.style_fig(fig)
 
 
+def _render_strategy_backtest(oos: dict, stress) -> None:
+    """Tunable, OOS strategy backtest over the shipped model-prediction series (Phase 5)."""
+    st.subheader("Strategy Backtest — model signals, your parameters")
+    st.caption("⚠️ Out-of-sample but **research only — not investment advice**. Backtests the "
+               "walk-forward OOS model directions; move the knobs to re-run live.")
+    if "oos_predictions" not in oos or oos["oos_predictions"].empty:
+        st.info("No OOS prediction series yet. Run `python scripts/train_and_backtest.py` "
+                "(the post-close cron ships `oos_predictions.parquet`).")
+        return
+    op = oos["oos_predictions"]
+    defaults = ms.default_strategies()
+    name = st.selectbox("Default strategy", list(defaults), key="msbt_name")
+    base = defaults[name]
+    bp = base["params"]
+    st.caption(base["desc"])
+
+    models = sorted(op["model"].unique())
+    horizons = sorted(op["horizon"].unique())
+    c1, c2, c3 = st.columns(3)
+    model = c1.selectbox("Model", models, index=models.index(bp.model) if bp.model in models else 0,
+                         key="msbt_model")
+    horizon = c2.selectbox("Horizon", horizons,
+                           index=horizons.index(bp.horizon) if bp.horizon in horizons else 0, key="msbt_h")
+    rebalance = c3.selectbox("Rebalance / roll", list(ms.REBALANCES),
+                             index=ms.REBALANCES.index(bp.rebalance), key="msbt_rb")
+    c4, c5, c6 = st.columns(3)
+    conviction = c4.slider("Conviction threshold (0.50 ≈ take any)", 0.50, 0.80,
+                           float(max(bp.conviction, 0.50)), 0.01, key="msbt_conv")
+    holding = c5.slider("Min holding period (days)", 0, 63, int(bp.holding_period), 1, key="msbt_hold")
+    direction = c6.radio("Direction", ["long_short", "long_only"],
+                         index=0 if bp.direction == "long_short" else 1, horizontal=True, key="msbt_dir")
+    c7, c8, c9 = st.columns(3)
+    sizing = c7.radio("Sizing", ["vol_target", "equal"],
+                      index=0 if bp.sizing == "vol_target" else 1, horizontal=True, key="msbt_size")
+    leverage = c8.slider("Gross leverage", 0.25, 2.0, float(bp.max_leverage), 0.05, key="msbt_lev")
+    per_pos = c9.slider("Per-position cap", 0.05, 0.50, float(bp.per_position_cap), 0.01, key="msbt_pp")
+    c10, c11 = st.columns(2)
+    cost_bps = c10.slider("Cost (bps/trade)", 0.0, 10.0, float(bp.cost_bps), 0.5, key="msbt_cost")
+    slippage = c11.slider("Slippage (bps)", 0.0, 10.0, float(bp.slippage_bps), 0.5, key="msbt_slip")
+    stress_max = bp.stress_max
+    if bp.gate is not None:
+        stress_max = st.slider(f"Stress gate threshold ({bp.gate})", 20.0, 90.0,
+                               float(bp.stress_max), 1.0, key="msbt_sg")
+
+    params = ms.ModelStrategyParams(
+        model=model, horizon=horizon, conviction=conviction, rebalance=rebalance,
+        holding_period=holding, direction=direction, sizing=sizing, vol_target=bp.vol_target,
+        max_leverage=leverage, per_position_cap=per_pos, cost_bps=cost_bps, slippage_bps=slippage,
+        gate=bp.gate, stress_max=stress_max, universe=bp.universe)
+
+    store = MarketStore()
+    try:
+        prices = {s: p for s in set(params.universe) | {"SPY"}
+                  if (p := store.try_price(s)) is not None}
+        with st.spinner("Backtesting OOS (costs applied)…"):
+            out = ms.run_strategy(op, prices, _CFG, params, asset_class=ms.class_map(_CFG),
+                                  stress=stress.history if stress is not None else None)
+    finally:
+        store.close()
+    if "error" in out:
+        st.warning(out["error"])
+        return
+
+    eq = out["equity"]
+    fig = go.Figure()
+    for col in eq.columns:
+        fig.add_trace(go.Scatter(x=eq.index, y=eq[col], mode="lines", name=col,
+                                 line=dict(width=2.5 if col == "SPY" else 1.6)))
+    fig.update_layout(title=f"OOS equity (growth of $1) · {out['window'][0]} → {out['window'][1]}",
+                      height=380, margin=dict(t=50, b=20, l=10, r=10), legend_title="")
+    st.plotly_chart(theme.style_fig(fig), width="stretch")
+
+    s = out["stats"]
+    row1 = st.columns(5)
+    row1[0].metric("Sortino", f"{s['sortino']:.2f}")
+    row1[1].metric("Sharpe", f"{s['sharpe']:.2f}")
+    row1[2].metric("CAGR", f"{s['cagr'] * 100:.1f}%")
+    row1[3].metric("Max DD", f"{s['max_drawdown'] * 100:.1f}%")
+    row1[4].metric("Calmar", f"{s['calmar']:.2f}")
+    row2 = st.columns(5)
+    row2[0].metric("Vol (ann.)", f"{s['volatility'] * 100:.1f}%")
+    row2[1].metric("Hit rate", f"{s['hit_rate'] * 100:.1f}%")
+    row2[2].metric("Profit factor", f"{s['profit_factor']:.2f}")
+    row2[3].metric("VaR 95 (1d)", f"{s['var_95'] * 100:.2f}%")
+    row2[4].metric("Beta vs SPY", f"{s.get('beta', 0.0):.2f}")
+    with st.expander("All statistics"):
+        st.dataframe(pd.DataFrame([s]).T.rename(columns={0: "value"}), width="stretch")
+
+    st.markdown("**PnL attribution**")
+    attr = out["attribution"]
+    per = attr["per_asset"]
+    if not per.empty:
+        colors = ["#16a34a" if v >= 0 else "#dc2626" for v in per["net_pnl"]]
+        bar = go.Figure(go.Bar(x=per["symbol"], y=per["net_pnl"] * 100, marker_color=colors))
+        bar.update_layout(title="Net PnL contribution by asset (%)", height=300,
+                          margin=dict(t=40, b=20, l=10, r=10), yaxis_title="net %")
+        st.plotly_chart(theme.style_fig(bar), width="stretch")
+    wf, ls = attr["waterfall"], attr["long_short"]
+    wr = st.columns(5)
+    wr[0].metric("Gross PnL", f"{wf['gross_pnl'] * 100:.1f}%")
+    wr[1].metric("Costs", f"{wf['cost'] * 100:.2f}%")
+    wr[2].metric("Net PnL", f"{wf['net_pnl'] * 100:.1f}%")
+    wr[3].metric("Long gross", f"{ls['long_gross'] * 100:.1f}%")
+    wr[4].metric("Short gross", f"{ls['short_gross'] * 100:.1f}%")
+
+    mt = out["monthly"]
+    if not mt.empty:
+        st.markdown("**Monthly returns (%)**")
+        disp = (mt * 100).round(1)
+        disp.columns = [pd.Timestamp(2000, int(m), 1).strftime("%b") for m in disp.columns]
+        st.dataframe(disp, width="stretch")
+
+
 def main() -> None:
     st.set_page_config(page_title="MacroAdvisor", layout="wide", page_icon="📊")
     theme.inject_css()
     st.title("📊 MacroAdvisor")
     st.caption("Evidence-based market regime & stress read, OOS forecasts, risk-budgeted trade "
-               "ideas, and a custom-strategy lab — Phase 3.  Research only; not investment advice.")
+               "ideas, tunable model-signal backtests, and a custom-strategy lab.  "
+               "Research only; not investment advice.")
 
     data = _load()
     stress: StressResult | None = data["stress"]
@@ -325,8 +440,10 @@ def main() -> None:
                     if "forecast" in oos else _CFG.yahoo_symbols("backtest_equity", "backtest_rates"))
     cfg_eff, overrides_active = _sidebar_overrides(idea_symbols)
 
-    overview, signals_tab, predictions, backtest_tab, ideas_tab, strategy_tab, health = st.tabs(
-        ["Overview", "Signals", "Predictions", "Backtest", "Trade Ideas", "Strategy Lab", "Data Health"])
+    (overview, signals_tab, predictions, backtest_tab, strat_bt_tab, ideas_tab,
+     strategy_tab, health) = st.tabs(
+        ["Overview", "Signals", "Predictions", "Backtest", "Strategy Backtest",
+         "Trade Ideas", "Strategy Lab", "Data Health"])
 
     # -- Overview --------------------------------------------------------
     with overview:
@@ -480,6 +597,10 @@ def main() -> None:
                 st.plotly_chart(theme.style_fig(fig), width="stretch")
             st.caption("Sortino-primary (the locked ranking objective). Costs + slippage applied; "
                        "vol-targeted within the risk budget; only OOS-predicted dates trade.")
+
+    # -- Strategy Backtest (tunable, OOS) --------------------------------
+    with strat_bt_tab:
+        _render_strategy_backtest(oos, stress)
 
     # -- Trade Ideas -----------------------------------------------------
     with ideas_tab:
