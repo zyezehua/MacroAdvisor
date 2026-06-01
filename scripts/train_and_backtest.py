@@ -15,6 +15,7 @@ Artifacts land under ``data/oos/`` and are uploaded to HF alongside the price ca
   diagnostics.parquet  OOS Brier / log-loss / hit-rate / driver-stability per (model,horizon)
   reliability.parquet  calibration curve (predicted vs realized up-freq) per (model,horizon)
   conviction.parquet   hit-rate by conviction bucket per (model,horizon)
+  oos_predictions.parquet  full OOS direction series (date×symbol×model×horizon) for live backtests
   meta.parquet      asof / universe / params
 
 Examples:
@@ -139,7 +140,7 @@ def main() -> int:
         rf_daily = (ust / 100.0 / ANN) if ust is not None else 0.0
 
         metrics_rows, equity_cols, fc_rows, attrib_rows, stress_rows = [], {}, [], [], []
-        diag_rows, rel_rows, conv_rows = [], [], []
+        diag_rows, rel_rows, conv_rows, oos_pred_rows = [], [], [], []
 
         for hname, h in horizons.items():
             dir_lab, ret_lab = _asset_label_series(prices, h, band)
@@ -158,6 +159,11 @@ def main() -> int:
                                          **bt["metrics"], "avg_gross": round(bt["avg_gross"], 3),
                                          "oos_hit_rate": round(float((oos["pred"] == oos["y"]).mean()), 4)})
                     equity_cols[tag] = bt["equity"]
+                    # ship the OOS prediction series so the app can re-backtest live (Phase 5)
+                    op = oos[["pred", "p_up", "p_down"]].reset_index()
+                    op["model"], op["horizon"] = m, hname
+                    op["p_up"] = op["p_up"].round(4); op["p_down"] = op["p_down"].round(4)
+                    oos_pred_rows.append(op)
                     # -- Phase-4 OOS diagnostics --------------------------------
                     rel = diagnostics.reliability(oos); rel["model"], rel["horizon"] = m, hname
                     conv = diagnostics.conviction_table(oos); conv["model"], conv["horizon"] = m, hname
@@ -218,6 +224,8 @@ def main() -> int:
         pd.DataFrame(diag_rows).to_parquet(out / "diagnostics.parquet")
         (pd.concat(rel_rows, ignore_index=True) if rel_rows else pd.DataFrame()).to_parquet(out / "reliability.parquet")
         (pd.concat(conv_rows, ignore_index=True) if conv_rows else pd.DataFrame()).to_parquet(out / "conviction.parquet")
+        # OOS prediction series (date×symbol×model×horizon) for the live Strategy Backtest tab
+        (pd.concat(oos_pred_rows, ignore_index=True) if oos_pred_rows else pd.DataFrame()).to_parquet(out / "oos_predictions.parquet")
         pd.DataFrame([{"asof": asof, "n_assets": len(prices), "models": ",".join(models),
                        "test_days": wf["test_days"]}]).to_parquet(out / "meta.parquet")
 
