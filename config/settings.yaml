@@ -60,6 +60,8 @@ stress:
     elevated: 70
     stressed: 85
   logistic_k: 1.0             # steepness of z -> 0-100 logistic map
+  min_component_coverage: 0.5 # min fraction of component weight present for a date to count
+                              # (drops the news-sentiment-only tail past the last market close)
 
 # ---------------------------------------------------------------------------
 # Prediction + backtest (Phase 2a)

@@ -99,13 +99,21 @@ def _component_frame(signals: dict[str, SignalResult]) -> pd.DataFrame:
     return pd.DataFrame(cols).sort_index()
 
 
-def _latent(comp_df: pd.DataFrame, weights: dict[str, float]) -> pd.Series:
-    """Per-date weighted mean of component stress, renormalizing over present components."""
+def _latent(comp_df: pd.DataFrame, weights: dict[str, float]) -> tuple[pd.Series, pd.Series]:
+    """Per-date weighted mean of component stress, renormalizing over present components.
+
+    Returns ``(latent, coverage)`` where ``coverage`` is the fraction of total component weight
+    actually present on each date — used to drop dates where only a trailing single-source
+    component (e.g. near-real-time news sentiment) exists past the last market close, which would
+    otherwise let one modestly-weighted component define the whole reading.
+    """
     w = pd.Series({c: weights.get(c, 0.0) for c in comp_df.columns}, dtype=float)
     mask = comp_df.notna()
     num = comp_df.mul(w, axis=1).sum(axis=1, skipna=True)
     den = mask.mul(w, axis=1).sum(axis=1)
-    return (num / den.replace(0.0, np.nan)).rename("latent")
+    latent = (num / den.replace(0.0, np.nan)).rename("latent")
+    coverage = (den / (w.sum() or 1.0)).rename("coverage")
+    return latent, coverage
 
 
 def compute_stress(store: MarketStore,
@@ -121,7 +129,11 @@ def compute_stress(store: MarketStore,
         raise ValueError("no signals available to compute stress")
 
     comp_df = _component_frame(signals)
-    latent = _latent(comp_df, weights).dropna()
+    latent, coverage = _latent(comp_df, weights)
+    # require enough component coverage so a lone trailing component (e.g. real-time news
+    # sentiment past the last market close) can't define the reading on its own.
+    min_cov = float(cfg.get("min_component_coverage", 0.5))
+    latent = latent[coverage >= min_cov].dropna()
     if latent.empty:
         raise ValueError("stress latent is empty (no overlapping component history)")
 
