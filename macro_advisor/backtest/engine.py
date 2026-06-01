@@ -68,17 +68,22 @@ def run(preds: pd.DataFrame, prices: dict[str, pd.Series], *, cfg, rf_daily=0.0)
 
     # weight at t earns the asset's return at t+1
     fwd = returns_wide.shift(-1)
-    gross_ret = (w * fwd).sum(axis=1)
+    contrib = w * fwd                                   # per-asset gross PnL contribution
+    gross_ret = contrib.sum(axis=1)
 
-    # costs on turnover (sum of |Δweight|), per leg
+    # costs on turnover (sum of |Δweight|), per leg — kept per-asset for attribution
     cost_rate = (float(bt.get("cost_bps_per_trade", 2.0)) + float(bt.get("slippage_bps", 1.0))) / 1e4
-    turnover = w.diff().abs().sum(axis=1).fillna(w.abs().sum(axis=1))
+    turnover_by_asset = w.diff().abs()
+    turnover_by_asset.iloc[0] = w.iloc[0].abs()         # day 1: entering from flat
+    cost_by_asset = turnover_by_asset * cost_rate
+    turnover = turnover_by_asset.sum(axis=1)
     net_ret = (gross_ret - turnover * cost_rate).dropna()
 
     # restrict to the OOS window (skip pre-prediction zero-weight days, which would
     # otherwise dilute the metrics)
     first_oos = preds.index.get_level_values("date").min()
     net_ret = net_ret[net_ret.index >= first_oos]
+    idx = net_ret.index                                 # the valid (traded) OOS window
 
     return {
         "returns": net_ret,
@@ -86,6 +91,12 @@ def run(preds: pd.DataFrame, prices: dict[str, pd.Series], *, cfg, rf_daily=0.0)
         "metrics": metrics.summary(net_ret, rf_daily),
         "avg_gross": float(w.abs().sum(axis=1).mean()),
         "avg_turnover": float(turnover.mean()),
+        # per-asset pieces aligned to the traded window, for PnL attribution
+        "weights": w.reindex(idx),
+        "contrib": contrib.reindex(idx),
+        "cost_by_asset": cost_by_asset.reindex(idx),
+        "turnover": turnover.reindex(idx),
+        "gross_exposure": w.abs().sum(axis=1).reindex(idx),
     }
 
 
